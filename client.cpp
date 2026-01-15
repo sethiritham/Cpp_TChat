@@ -6,6 +6,7 @@
 #include <thread>
 #include "chat.h"
 
+
 int main()
 {
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -26,14 +27,39 @@ int main()
         return -1;
     }
 
-    std::cout << "Connected to server" << std::endl;
+    std::cout << "Connected! Verifying credentials..." << std::endl;
+
+    std::string name;
+    std::string pass;
+
+    std::cout << "Enter your name: " << std::flush;
+    std::getline(std::cin, name);
+
+    std::cout << "Enter your password: " << std::flush;
+    std::getline(std::cin, pass);
+
+    std::string credentials = name + "|" + pass;
+    send(clientSocket, credentials.c_str(), credentials.size(), 0);
+
+    char buffer[1024] = {0};
+    recv(clientSocket, buffer, sizeof(buffer), 0);
+    std::string response = buffer;
+
+    if(response == "OK")
+    {
+        std::cout << "Login successful\n" << name << " is now connected to the server" << std::endl;
+    }
+    else
+    {
+        std::cout << "Error connecting to server (WRONG PASSWORD)" << std::endl;
+        return -1;
+    }
 
     std::thread t(recieveLoop, clientSocket);
     t.detach();
 
-    sendLoop(clientSocket);
+    sendLoop(clientSocket, name);
 
-    
     close(clientSocket);
     return 0;
 }

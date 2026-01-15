@@ -12,6 +12,8 @@
 
 inline std::mutex consoleLock;
 
+const std::string SERVER_PASSWORD = "123";
+
 inline void safePrint(const char* msg)
 {
     std::lock_guard<std::mutex> lock(consoleLock);
@@ -20,7 +22,7 @@ inline void safePrint(const char* msg)
     std::cout << "You: " << std::flush;
 }
 
-inline void sendLoop(int clientSocket)
+inline void sendLoop(int clientSocket, std::string name)
 {
     std::string text;
     while (true)
@@ -38,8 +40,9 @@ inline void sendLoop(int clientSocket)
             std::cout << "You: " << text << std::endl;
         }
 
+        std::string packet = "[" + name + "]: " + text;
 
-        send(clientSocket, text.c_str(), text.size(), 0);
+        send(clientSocket, packet.c_str(), packet.size(), 0);
 
         {
             std::lock_guard<std::mutex> lock(consoleLock);
