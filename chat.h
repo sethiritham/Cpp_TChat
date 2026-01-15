@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <cstring>
+#include <random>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -12,7 +13,22 @@
 
 inline std::mutex consoleLock;
 
-const std::string SERVER_PASSWORD = "123";
+
+inline std::string passwordGenerator()
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());                     
+    std::uniform_int_distribution<> dist(10000, 99999);
+
+    int randomNumber = dist(gen);
+
+    std::string password = std::to_string(randomNumber);
+
+    return password;
+}
+
+
+const std::string SERVER_PASSWORD = passwordGenerator();
 
 inline void safePrint(const char* msg)
 {
