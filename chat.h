@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <random>
 #include <unistd.h>
+#include <termios.h>
 #include <thread>
 #include <mutex>
 #include <vector>
@@ -17,6 +18,14 @@
 
 inline std::mutex consoleLock;
 
+inline void setupTerminal()
+{
+    struct termios t;
+    tcgetattr(STDIN_FILENO, &t);
+    t.c_iflag |= ICRNL;
+    t.c_oflag |= (ONLCR | OPOST);
+    tcsetattr(STDIN_FILENO, TCSANOW, &t);
+}
 
 inline std::string passwordGenerator()
 {
@@ -80,7 +89,8 @@ inline void recieveLoop(int clientSocket)
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
         if (bytesReceived <= 0)
         {
-            break;
+            safePrint("Server disconnected. Press Enter to exit...");
+            exit(0);
         }
 
         buffer[bytesReceived] = '\0';

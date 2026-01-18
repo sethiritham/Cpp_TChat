@@ -15,6 +15,25 @@ void broadcast(const std::string& message, int senderSocket)
     }
 }
 
+void serverSendLoop(int clientSocket)
+{
+    std::string text;
+    while(true)
+    {
+        std::getline(std::cin, text);
+        if(text == "/quit")
+        {
+            std::cout << "Shutting down server..." << std::endl;
+            exit(0);
+        }
+
+
+        std::cout << "\033[A\033[K" << std::flush;
+        safePrint("You: " + text);
+        broadcast("[ADMIN]: " + text, -1);
+    }
+}
+
 void HandleClient(int clientSocket)
 {
     char buffer[1024] = {0};
@@ -42,8 +61,10 @@ void HandleClient(int clientSocket)
         return;
     }
     send(clientSocket, "OK", 2, 0);
-    safePrint(name + " has joined the chat!");
-    broadcast("[SERVER]: " + name + " has joined the chat!", clientSocket);
+
+    std::string joinMsg = "[SERVER]: " + name + " has joined the chat!";
+    safePrint(joinMsg);
+    broadcast(joinMsg, clientSocket);
     
     {
     std::lock_guard<std::mutex> lock(clientMutex);
@@ -56,8 +77,9 @@ void HandleClient(int clientSocket)
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
         if (bytesReceived <= 0)
         {
-            safePrint(name + "has left the chat!");
-            broadcast("[SERVER]: " + name + "has left the chat!", clientSocket);
+            std::string leaveMsg = "[SERVER]: " + name + " has left the chat!";
+            safePrint(leaveMsg);
+            broadcast(leaveMsg, clientSocket);
             break;
         }
         buffer[bytesReceived] = '\0';
@@ -87,24 +109,35 @@ void RunServer()
     serverAddress.sin_port = htons(12345);
     serverAddress.sin_addr.s_addr = INADDR_ANY;
 
+    int opt = 1;
+    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
     if(bind(serverSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0)
     {
         std::cerr<<"Port "<<12345<<" is already in use!"<<std::endl;
         return;
     }
     listen(serverSocket, 5);
-    std::cout<<"Room created! Password: "<<SERVER_PASSWORD<<"Waiting for clients on port "<<12345<<std::endl;
-    while (true)
-    {
-        int clientSocket = accept(serverSocket, nullptr, nullptr);
-        if (clientSocket < 0)
+    std::cout<<"Room created! Password: "<<SERVER_PASSWORD<<"\nWaiting for clients on port "<<12345<<std::endl;
+
+    std::thread listener([serverSocket](){
+        while (true)
         {
-            std::cerr<<"Error accepting connection"<<std::endl;
-            continue;
+            int clientSocket = accept(serverSocket, nullptr, nullptr);
+            if (clientSocket < 0)
+            {
+                std::cerr<<"Error accepting connection"<<std::endl;
+                continue;
+            }
+            std::thread clientThread(HandleClient, clientSocket);
+            clientThread.detach();
         }
-        std::thread clientThread(HandleClient, clientSocket);
-        clientThread.detach();
-    }
+    });
+    listener.detach();
+
+    serverSendLoop(serverSocket);
+    close(serverSocket);
+    
 }
 
 
@@ -129,9 +162,9 @@ void RunClient()
 
     std::string name, pass;
     std::cout<<"Enter your name: ";
-    std::cin>>name;
+    std::getline(std::cin, name);
     std::cout<<"Enter your password: ";
-    std::cin>>pass;
+    std::getline(std::cin, pass);
     std::string creds = name + "|" + pass;
     send(clientSocket, creds.c_str(), creds.size(), 0);
     
@@ -156,9 +189,10 @@ void RunClient()
 
 int main()
 {
+    setupTerminal();
     std::cout<<"========== TERMINAL CHAT ==========\n";
-    std::cout<<"1. Run Server\n";
-    std::cout<<"2. Run Client\n";
+    std::cout<<"1. Run Server"<<std::endl;
+    std::cout<<"2. Run Client"<<std::endl;
     std::cout<<"Enter your choice: ";
     int choice;
     std::cin>>choice;
