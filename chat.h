@@ -3,13 +3,17 @@
 
 #include <iostream>
 #include <cstring>
-#include <random>
+#include <string>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <unistd.h>
-#include <mutex>
-#include <thread>
 #include <arpa/inet.h>
+#include <netdb.h>
+#include <random>
+#include <unistd.h>
+#include <thread>
+#include <mutex>
+#include <vector>
+#include <algorithm>
 
 inline std::mutex consoleLock;
 
@@ -30,7 +34,7 @@ inline std::string passwordGenerator()
 
 const std::string SERVER_PASSWORD = passwordGenerator();
 
-inline void safePrint(const char* msg)
+inline void safePrint(const std::string& msg)
 {
     std::lock_guard<std::mutex> lock(consoleLock);
     std::cout << "\r\033[K";
