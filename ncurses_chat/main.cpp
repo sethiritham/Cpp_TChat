@@ -20,10 +20,6 @@ void serverSendLoop()
     while(true)
     {
         werase(inputWin);
-        box(inputWin, 0, 0);
-        mvwprintw(inputWin, 0, 1, "[ ADMIN MESSAGE ]");
-
-        wmove(inputWin, 1, 2);
         wrefresh(inputWin);
 
         memset(buffer, 0, sizeof(buffer));
@@ -41,7 +37,7 @@ void serverSendLoop()
 
         safePrint("You: " + text);
 
-        broadcast("[ ADMIN ]: " + text, -1);
+        broadcast("[ADMIN]: " + text, -1);
     }
 
 }
@@ -126,6 +122,10 @@ void RunServer()
     }
     listen(serverSocket, 5);
 
+    setupNcurses();
+    safePrint("Server started on port 12345");
+    safePrint("Password: " + SERVER_PASSWORD);
+    safePrint("Waiting for clients to join");
 
     std::thread listener([serverSocket](){
         while (true)
@@ -142,13 +142,8 @@ void RunServer()
     });
     listener.detach();
 
-    setupNcurses();
-    safePrint("Server started on port 12345");
-    safePrint("Password: " + SERVER_PASSWORD);
-    safePrint("Waiting for clients to join");
-
     serverSendLoop();
-
+    
     cleanupNcurses();
     close(serverSocket);
 }
@@ -190,7 +185,7 @@ void RunClient()
     }
 
     setupNcurses();
-    safePrint("Connected to server!\nWELCOME TO TCHAT\n\n");
+    safePrint("Connected to server!\n WELCOME TO TCHAT\n");
 
     std::thread t(recieveLoop, clientSocket);
     t.detach();

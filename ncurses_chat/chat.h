@@ -18,8 +18,8 @@
 
 inline std::mutex consoleLock;
 
-inline WINDOW* chatWin;
-inline WINDOW* inputWin;
+inline WINDOW* chatBorder, *chatWin;
+inline WINDOW* inputBorder, *inputWin;
 inline int screenHeight, screenWidth;
 
 
@@ -41,37 +41,48 @@ inline void setupNcurses()
 {
     initscr();
     cbreak();
-    noecho();
+    echo();
+
+    keypad(stdscr, true);
 
     getmaxyx(stdscr, screenHeight, screenWidth);
-    chatWin = newwin(screenHeight - 3, screenWidth, 0, 0);
-    inputWin = newwin(3, screenWidth, screenHeight - 3, 0);
+
+    chatBorder = newwin(screenHeight - 3, screenWidth, 0, 0);
+    chatWin = newwin(screenHeight - 5, screenWidth - 2, 1, 1);
+    inputBorder = newwin(3, screenWidth, screenHeight - 3, 0);
+    inputWin = newwin(1, screenWidth - 2, screenHeight - 2, 1);
 
     scrollok(chatWin, true);
-    idlok(chatWin, true);
+    scrollok(inputWin, true);
 
-    box(chatWin, 0, 0);
-    box(inputWin, 0, 0);
+    keypad(inputWin, true);
 
-    wrefresh(chatWin);
-    wrefresh(inputWin);
+    box(chatBorder, 0, 0);
+    mvwprintw(chatBorder, 0, 1, "[ CHAT ROOM ]");
     
+    box(inputBorder, 0, 0);
+    mvwprintw(inputBorder, 0, 1, "[ MESSAGE ]");
+
+    wrefresh(chatBorder);
+    wrefresh(chatWin);
+    wrefresh(inputBorder);
+    wrefresh(inputWin);
 }
 
 inline void cleanupNcurses()
 {
     delwin(chatWin);
+    delwin(chatBorder);
     delwin(inputWin);
+    delwin(inputBorder);
     endwin();
 }
 
 inline void safePrint(const std::string& msg)
 {
     std::lock_guard<std::mutex> lock(consoleLock);
-    wprintw(chatWin, "%s\n", msg.c_str());
-    
-    box(chatWin, 0, 0);
-    mvwprintw(chatWin, 0, 1, "[ CHAT ROOM ]");
+
+    wprintw(chatWin, " %s\n", msg.c_str());
     
     wrefresh(chatWin);
 
@@ -84,8 +95,6 @@ inline void sendLoop(int clientSocket, std::string name)
     while(true)
     {
         werase(inputWin);
-        box(inputWin, 0, 0);
-        mvwprintw(inputWin, 0, 1, "[ MESSAGE ]");
 
         wmove(inputWin, 1, 2);
         wrefresh(inputWin);
