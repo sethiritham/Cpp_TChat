@@ -18,10 +18,15 @@
 
 inline std::mutex consoleLock;
 
+inline std::vector<int> clientSockets;
+inline std::mutex clientMutex;
+
 inline WINDOW* chatBorder, *chatWin;
 inline WINDOW* inputBorder, *inputWin;
 inline int screenHeight, screenWidth;
 
+void RunServer();
+void RunClient();
 
 inline std::string passwordGenerator()
 {
@@ -136,6 +141,16 @@ inline void recieveLoop(int clientSocket)
         buffer[bytesReceived] = '\0';
         std::string msg = buffer;
         safePrint(msg);
+    }
+}
+
+inline void broadcast(const std::string& message, int senderSocket)
+{
+    std::lock_guard<std::mutex> lock(clientMutex);
+    for (int client : clientSockets)
+    {
+        if (client != senderSocket)
+            send(client, message.c_str(), message.size(), 0);
     }
 }
 

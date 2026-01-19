@@ -51,7 +51,7 @@ cd Cpp_TChat
 Compile the code: You must link pthread (for threads) and ncurses (for UI).
 
 ```bash
-g++ ncurses_chat/main.cpp -o chat_app -pthread -lncurses
+g++ ncurses_chat/main.cpp ncurses_chat/server.cpp ncurses_chat/client.cpp -o chat_app -pthread -lncurses
 ```
 
 Run the application:
