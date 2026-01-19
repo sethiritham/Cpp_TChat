@@ -71,7 +71,7 @@ inline void safePrint(const std::string& msg)
     wprintw(chatWin, "%s\n", msg.c_str());
     
     box(chatWin, 0, 0);
-    mvwprintw(chatWin, 0, 1, "[ CHAT ROOM ]")
+    mvwprintw(chatWin, 0, 1, "[ CHAT ROOM ]");
     
     wrefresh(chatWin);
 
@@ -129,3 +129,5 @@ inline void recieveLoop(int clientSocket)
         safePrint(msg);
     }
 }
+
+#endif
