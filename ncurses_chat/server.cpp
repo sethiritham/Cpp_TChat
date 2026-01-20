@@ -7,12 +7,12 @@ void serverSendLoop()
     while(true)
     {
         werase(inputWin);
-        wrefresh(inputWin);
+        box(inputBorder, 0, 0);
 
         mvwprintw(inputBorder, 0, 1, "[ MESSAGE ]");
         wrefresh(inputBorder);
 
-        wmove(inputWin, 1, 2);
+        wmove(inputWin, 0, 1);
         wrefresh(inputWin);
 
         memset(buffer, 0, sizeof(buffer));
@@ -30,18 +30,26 @@ void serverSendLoop()
         if(text.rfind("/kick ", 0) == 0)
         {
             std::string targetName = text.substr(6);
-            std::lock_guard<std::mutex> lock(clientMutex);
-            if (clientSockets.count(targetName) == 0)
+            int targetSocket = -1;
+
+            {
+                std::lock_guard<std::mutex> lock(clientMutex);
+                if (clientSockets.count(targetName) > 0)
+                {
+                    targetSocket = clientSockets[targetName];
+                }
+            }
+
+            if (targetSocket == -1)
             {
                 safePrint("User not found");
                 continue;
             }
-            int targetSocket = clientSockets[targetName];
+            
             std::string kickCmd = "||KICK||";
             send(targetSocket, kickCmd.c_str(), kickCmd.size(), 0);
 
             safePrint("[SERVER]: " + targetName + " has been kicked");
-            broadcast("[SERVER]: " + targetName + " has been kicked", -1);
 
             continue;
         }
@@ -70,7 +78,7 @@ void HandleClient(int clientSocket)
     std::string name = message.substr(0, message.find("|"));
     std::string password = message.substr(message.find("|") + 1);
 
-    if(password != SERVER_PASSWORD) { send(clientSocket, "NO", 2, 0);close(clientSocket); return; }
+    if(password != SERVER_PASSWORD) { send(clientSocket, "NO", 2, 0); close(clientSocket); return; }
 
     send(clientSocket, "OK", 2, 0);
 
@@ -78,30 +86,29 @@ void HandleClient(int clientSocket)
     safePrint(joinMsg);
     broadcast(joinMsg, clientSocket);
 
-
     {
         std::lock_guard<std::mutex> lock(clientMutex);
         clientSockets[name] = clientSocket;
     }
 
+    bool wasKicked = false;
+    
     while(true)
     {
         memset(buffer, 0, sizeof(buffer));
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
         if (bytesReceived <= 0)
         {
-
-            bool wasKicked = false;
             {
                 std::lock_guard<std::mutex> lock(clientMutex);
-                if (clientSockets.find(name) == clientSockets.end()) wasKicked = true;
+                wasKicked = (clientSockets.find(name) == clientSockets.end());
             }
 
-            if (wasKicked) break;
-
-            std::string leftMsg = "[SERVER]: " + name + " has left the chat";
-            safePrint(leftMsg);
-            broadcast(leftMsg, clientSocket);
+            if (wasKicked == false) {
+                std::string leftMsg = "[SERVER]: " + name + " has left the chat";
+                safePrint(leftMsg);
+                broadcast(leftMsg, clientSocket);
+            }
             break;
         }
         buffer[bytesReceived] = '\0';
@@ -113,13 +120,9 @@ void HandleClient(int clientSocket)
     close(clientSocket);
     {
         std::lock_guard<std::mutex> lock(clientMutex);
-        if (clientSockets.count(name)) {
-            clientSockets.erase(name);
-        }
+        clientSockets.erase(name);
     }
-
 }
-
 
 void RunServer()
 {
