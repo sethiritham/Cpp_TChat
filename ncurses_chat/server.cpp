@@ -20,6 +20,29 @@ void serverSendLoop()
             break;
         }
 
+
+        if(text.rfind("/kick ", 0) == 0)
+        {
+            std::string targetName = text.substr(6);
+            std::lock_guard<std::mutex> lock(clientMutex);
+            if (clientSockets.count(targetName) == 0)
+            {
+                safePrint("User not found");
+                continue;
+            }
+            int targetSocket = clientSockets[targetName];
+            std::string kickMsg = "[SERVER]: " + targetName + " has been kicked by admin";
+            send(targetSocket, kickMsg.c_str(), kickMsg.size(), 0);
+
+            close(targetSocket);
+            clientSockets.erase(targetName);
+
+            safePrint("[SERVER]: " + targetName + " has been kicked");
+            broadcast("[SERVER]: " + targetName + " has been kicked", -1);
+
+            continue;
+        }
+
         if(text.empty()) continue;
 
         safePrint("You: " + text);
@@ -55,7 +78,7 @@ void HandleClient(int clientSocket)
 
     {
         std::lock_guard<std::mutex> lock(clientMutex);
-        clientSockets.push_back(clientSocket);
+        clientSockets[name] = clientSocket;
     }
 
     while(true)
@@ -64,6 +87,15 @@ void HandleClient(int clientSocket)
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
         if (bytesReceived <= 0)
         {
+
+            bool wasKicked = false;
+            {
+                std::lock_guard<std::mutex> lock(clientMutex);
+                if (clientSockets.find(name) == clientSockets.end()) wasKicked = true;
+            }
+
+            if (wasKicked) break;
+
             std::string leftMsg = "[SERVER]: " + name + " has left the chat";
             safePrint(leftMsg);
             broadcast(leftMsg, clientSocket);
@@ -78,7 +110,9 @@ void HandleClient(int clientSocket)
     close(clientSocket);
     {
         std::lock_guard<std::mutex> lock(clientMutex);
-        clientSockets.erase(std::remove(clientSockets.begin(), clientSockets.end(), clientSocket), clientSockets.end());
+        if (clientSockets.count(name)) {
+            clientSockets.erase(name);
+        }
     }
 
 }

@@ -14,11 +14,12 @@
 #include <mutex>
 #include <vector>
 #include <algorithm>
+#include <map>
 #include <ncurses.h>
 
 inline std::mutex consoleLock;
 
-inline std::vector<int> clientSockets;
+inline std::map<std::string, int> clientSockets;
 inline std::mutex clientMutex;
 
 inline WINDOW* chatBorder, *chatWin;
@@ -150,7 +151,7 @@ inline void sendLoop(int clientSocket, std::string name)
         safePrint("You: " + text);
 
         std::string packet = "[" + name + "]: " + text;
-        send(clientSocket, packet.c_str(), packet.size(), 0);
+        if (send(clientSocket, packet.c_str(), packet.size(), 0) == -1) break;
 
     }
 }
@@ -177,10 +178,10 @@ inline void recieveLoop(int clientSocket)
 inline void broadcast(const std::string& message, int senderSocket)
 {
     std::lock_guard<std::mutex> lock(clientMutex);
-    for (int client : clientSockets)
+    for (auto const& [name, socket] : clientSockets)
     {
-        if (client != senderSocket)
-            send(client, message.c_str(), message.size(), 0);
+        if (socket != senderSocket)
+            send(socket, message.c_str(), message.size(), 0);
     }
 }
 
