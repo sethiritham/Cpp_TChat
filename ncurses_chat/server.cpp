@@ -37,6 +37,7 @@ void serverSendLoop()
                 if (clientSockets.count(targetName) > 0)
                 {
                     targetSocket = clientSockets[targetName];
+                    clientSockets.erase(targetName);
                 }
             }
 
@@ -91,23 +92,29 @@ void HandleClient(int clientSocket)
         clientSockets[name] = clientSocket;
     }
 
-    bool wasKicked = false;
     
     while(true)
     {
         memset(buffer, 0, sizeof(buffer));
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+        bool isStillInMap = false;
         if (bytesReceived <= 0)
         {
             {
                 std::lock_guard<std::mutex> lock(clientMutex);
-                wasKicked = (clientSockets.find(name) == clientSockets.end());
+                if(clientSockets.find(name) != clientSockets.end())
+                {
+                    isStillInMap = true;
+                }
             }
 
-            if (wasKicked == false) {
+            if (isStillInMap) {
                 std::string leftMsg = "[SERVER]: " + name + " has left the chat";
                 safePrint(leftMsg);
                 broadcast(leftMsg, clientSocket);
+
+                std::lock_guard<std::mutex> lock(clientMutex);
+                clientSockets.erase(name);
             }
             break;
         }
@@ -118,10 +125,7 @@ void HandleClient(int clientSocket)
     }
 
     close(clientSocket);
-    {
-        std::lock_guard<std::mutex> lock(clientMutex);
-        clientSockets.erase(name);
-    }
+
 }
 
 void RunServer()

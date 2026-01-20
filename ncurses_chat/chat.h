@@ -60,6 +60,9 @@ inline void setupNcurses()
         init_pair(1, COLOR_CYAN, -1);
         init_pair(2, COLOR_GREEN, -1);
         init_pair(3, COLOR_RED, -1);
+        init_pair(4, COLOR_YELLOW, -1);
+        init_pair(5, COLOR_BLUE, -1);
+        init_pair(6, COLOR_MAGENTA, -1);
     }
 
     getmaxyx(stdscr, screenHeight, screenWidth);
@@ -101,7 +104,7 @@ inline void safePrint(const std::string& msg)
 
     int color_pair = 0;
 
-    if (msg.find("[SERVER]") != std::string::npos || msg.find("[ ADMIN ]") != std::string::npos) 
+    if (msg.find("[SERVER]") != std::string::npos || msg.find("[ADMIN]") != std::string::npos) 
     {
         color_pair = 1; 
     }

@@ -35,7 +35,7 @@ void RunClient()
     std::cout<<"Enter your name: ";
     std::getline(std::cin, name);
     std::cout<<"Enter your password: ";
-    std::getline(std::cin, pass);
+    std::getline(std::cin, pass);   
     std::string creds = name + "|" + pass;
     send(clientSocket, creds.c_str(), creds.size(), 0);
     
