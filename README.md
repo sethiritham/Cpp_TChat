@@ -84,6 +84,8 @@ As the admin, you can type messages to broadcast to everyone.
 
 Select option **2**.
 
+Enter the **IP Address** of the connection.
+
 Enter your **Username**.
 
 Enter the **Room Password** shown on the Server's screen.
