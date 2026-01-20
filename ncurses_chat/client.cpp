@@ -8,10 +8,22 @@ void RunClient()
         std::cerr << "Error creating socket" << std::endl;
         return;
     }
+
+    std::string ip;
+    std::cout<<"Enter server IP (Press enter for localhost 127.0.0.1): ";
+    std::getline(std::cin, ip);
+    if(ip.empty()) ip = "127.0.0.1";
+
     struct sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(12345);
-    serverAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
+    serverAddress.sin_addr.s_addr = inet_addr(ip.c_str());
+
+    if(inet_pton(AF_INET, ip.c_str(), &serverAddress.sin_addr) <= 0)
+    {
+        std::cerr<<"Invalid IP address"<<std::endl;
+        return;
+    }
 
     if(connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0)
     {
