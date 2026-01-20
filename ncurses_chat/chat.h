@@ -171,6 +171,13 @@ inline void recieveLoop(int clientSocket)
         }
         buffer[bytesReceived] = '\0';
         std::string msg = buffer;
+
+        if(msg == "||KICK||")
+        {
+            cleanupNcurses();
+            std::cout<<"You have been kicked by admin"<<std::endl;
+            exit(0);
+        }
         safePrint(msg);
     }
 }

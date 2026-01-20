@@ -9,6 +9,12 @@ void serverSendLoop()
         werase(inputWin);
         wrefresh(inputWin);
 
+        mvwprintw(inputBorder, 0, 1, "[ MESSAGE ]");
+        wrefresh(inputBorder);
+
+        wmove(inputWin, 1, 2);
+        wrefresh(inputWin);
+
         memset(buffer, 0, sizeof(buffer));
         wgetnstr(inputWin, buffer, 1023);
 
@@ -31,11 +37,8 @@ void serverSendLoop()
                 continue;
             }
             int targetSocket = clientSockets[targetName];
-            std::string kickMsg = "[SERVER]: " + targetName + " has been kicked by admin";
-            send(targetSocket, kickMsg.c_str(), kickMsg.size(), 0);
-
-            close(targetSocket);
-            clientSockets.erase(targetName);
+            std::string kickCmd = "||KICK||";
+            send(targetSocket, kickCmd.c_str(), kickCmd.size(), 0);
 
             safePrint("[SERVER]: " + targetName + " has been kicked");
             broadcast("[SERVER]: " + targetName + " has been kicked", -1);
