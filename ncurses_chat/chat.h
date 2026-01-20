@@ -50,6 +50,17 @@ inline void setupNcurses()
 
     keypad(stdscr, true);
 
+    if(has_colors())
+    {
+        start_color();
+
+        use_default_colors();
+
+        init_pair(1, COLOR_CYAN, -1);
+        init_pair(2, COLOR_GREEN, -1);
+        init_pair(3, COLOR_RED, -1);
+    }
+
     getmaxyx(stdscr, screenHeight, screenWidth);
 
     chatBorder = newwin(screenHeight - 3, screenWidth, 0, 0);
@@ -87,7 +98,26 @@ inline void safePrint(const std::string& msg)
 {
     std::lock_guard<std::mutex> lock(consoleLock);
 
-    wprintw(chatWin, " %s\n", msg.c_str());
+    int color_pair = 0;
+
+    if (msg.find("[SERVER]") != std::string::npos || msg.find("[ ADMIN ]") != std::string::npos) 
+    {
+        color_pair = 1; 
+    }
+    else if (msg.find("You:") == 0) 
+    {
+        color_pair = 2; 
+    }
+    else if (msg.find("Error") != std::string::npos || msg.find("Quitting") != std::string::npos)
+    {
+        color_pair = 3; 
+    }
+
+    if (color_pair > 0) wattron(chatWin, COLOR_PAIR(color_pair));
+    
+    wprintw(chatWin, "%s\n", msg.c_str());
+
+    if (color_pair > 0) wattroff(chatWin, COLOR_PAIR(color_pair));
     
     wrefresh(chatWin);
 
