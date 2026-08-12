@@ -1,0 +1,114 @@
+[
+  {
+    "file": "src/bcrypt/Structures.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "-std=c++11",
+      "-Wall",
+      "-O2",
+      "-Iinclude",
+      "-c",
+      "src/bcrypt/Structures.cpp",
+      "-o",
+      "src/bcrypt/Structures.o"
+    ],
+    "directory": "/Users/rizzam/Codes/C++/Cpp_TChat",
+    "output": "src/bcrypt/Structures.o"
+  },
+  {
+    "file": "src/bcrypt/bcrypt.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "-std=c++11",
+      "-Wall",
+      "-O2",
+      "-Iinclude",
+      "-c",
+      "src/bcrypt/bcrypt.cpp",
+      "-o",
+      "src/bcrypt/bcrypt.o"
+    ],
+    "directory": "/Users/rizzam/Codes/C++/Cpp_TChat",
+    "output": "src/bcrypt/bcrypt.o"
+  },
+  {
+    "file": "src/bcrypt/blowfish.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "-std=c++11",
+      "-Wall",
+      "-O2",
+      "-Iinclude",
+      "-c",
+      "src/bcrypt/blowfish.cpp",
+      "-o",
+      "src/bcrypt/blowfish.o"
+    ],
+    "directory": "/Users/rizzam/Codes/C++/Cpp_TChat",
+    "output": "src/bcrypt/blowfish.o"
+  },
+  {
+    "file": "src/bcrypt/bcrypt_example.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "-std=c++11",
+      "-Wall",
+      "-O2",
+      "-Iinclude",
+      "-c",
+      "src/bcrypt/bcrypt_example.cpp",
+      "-o",
+      "src/bcrypt/bcrypt_example.o"
+    ],
+    "directory": "/Users/rizzam/Codes/C++/Cpp_TChat",
+    "output": "src/bcrypt/bcrypt_example.o"
+  },
+  {
+    "file": "src/ncurses_chat/client.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "-std=c++11",
+      "-Wall",
+      "-O2",
+      "-Iinclude",
+      "-c",
+      "src/ncurses_chat/client.cpp",
+      "-o",
+      "src/ncurses_chat/client.o"
+    ],
+    "directory": "/Users/rizzam/Codes/C++/Cpp_TChat",
+    "output": "src/ncurses_chat/client.o"
+  },
+  {
+    "file": "src/ncurses_chat/main.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "-std=c++11",
+      "-Wall",
+      "-O2",
+      "-Iinclude",
+      "-c",
+      "src/ncurses_chat/main.cpp",
+      "-o",
+      "src/ncurses_chat/main.o"
+    ],
+    "directory": "/Users/rizzam/Codes/C++/Cpp_TChat",
+    "output": "src/ncurses_chat/main.o"
+  },
+  {
+    "file": "src/ncurses_chat/server.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "-std=c++11",
+      "-Wall",
+      "-O2",
+      "-Iinclude",
+      "-c",
+      "src/ncurses_chat/server.cpp",
+      "-o",
+      "src/ncurses_chat/server.o"
+    ],
+    "directory": "/Users/rizzam/Codes/C++/Cpp_TChat",
+    "output": "src/ncurses_chat/server.o"
+  }
+]
