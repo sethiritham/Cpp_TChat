@@ -185,17 +185,22 @@ Packet = Header + Payload
 
 ## Message
 
-### Server Side & Client Side
-
-- Server or Client sends a message, it is broadcasted to all other members
+Server or Client sends a message, it is broadcasted to all other members
 of the chat
 
-- Incoming packets are stored into the read buffer of the client,
-when the entire packet is received, the message is processed and displayed
+### Server Side
 
-- Outgoing packets are also stored into the write buffer of the client which
-is both concurrently displayed in the input box and displayed all together in
-the chat window
+#### Packets from other clients
+
+- Incoming packets from the client are stored into the write buffer of the every
+client session except the sender,
+- When the entire packet is received, the message is processed and displayed
+
+#### Packets from the server
+
+- Packets sent by the server are stored into the write buffer of the client
+which is both concurrently displayed in the input box and displayed all
+together in the chat window
 
 ### Commands
 
