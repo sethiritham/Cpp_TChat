@@ -1,47 +1,116 @@
 #ifndef CHAT2_HPP
 #define CHAT2_HPP
 
-#include <algorithm>
+#include "inttypes.h"
 #include <arpa/inet.h>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
-#include <map>
-#include <mutex>
 #include <ncurses.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <random>
 #include <string>
-#include <sys/socket.h>
-#include <thread> #include <unistd.h>
 #include <vector>
 
-enum packet_types {
-  FILE_META = 0,
-  FILE_CHUNK = 1,
-  MSG = 2,
-  CMND = 3,
-  ACK = 4,
-  PRESENCE = 5,
-  POLL = 6,
-  PING = 7,
-};
+constexpr int PORT = 8080;
+constexpr int MAX_EVENTS = 32;
+constexpr uint16_t PROTOCOL_KEY = 0x4354; // "CT"
 
-typedef struct Packet {
+#pragma pack(push, 1)
+struct PacketHeader {
+  uint16_t magic;
+  uint8_t version;
   uint8_t type;
+  uint32_t sequence_id;
   uint32_t payload_length;
-  const char *payload;
-} Packet;
 
-Packet gen_packet(const std::string &message, const uint8_t &type) {
-  Packet pack;
+  std::string to_cstr() const {
 
-  pack.type = type;
-  pack.payload_length = message.length();
-  pack.payload = message.c_str();
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer),
+             "%05" PRIu16 "%03" PRIu8 "%03" PRIu8 "%10" PRIu32 "%10" PRIu32,
+             this->magic, this->version, this->type, this->sequence_id,
+             this->payload_length);
 
-  return pack;
+    return std::string(buffer);
+  }
+};
+#pragma pack(pop)
+
+inline WINDOW *chatBorder, *chatWin;
+inline WINDOW *inputBorder, *inputWin;
+inline int screenHeight, screenWidth;
+
+inline void setupNcurses() {
+  initscr();
+  cbreak();
+  noecho();
+  keypad(stdscr, true);
+
+  if (has_colors()) {
+    start_color();
+    use_default_colors();
+    init_pair(1, COLOR_CYAN, -1);
+    init_pair(2, COLOR_GREEN, -1);
+    init_pair(3, COLOR_RED, -1);
+  }
+
+  getmaxyx(stdscr, screenHeight, screenWidth);
+
+  chatBorder = newwin(screenHeight - 3, screenWidth, 0, 0);
+  chatWin = newwin(screenHeight - 5, screenWidth - 2, 1, 1);
+  inputBorder = newwin(3, screenWidth, screenHeight - 3, 0);
+  inputWin = newwin(1, screenWidth - 2, screenHeight - 2, 1);
+
+  scrollok(chatWin, true);
+  scrollok(inputWin, true);
+  keypad(inputWin, true);
+
+  box(chatBorder, 0, 0);
+  mvwprintw(chatBorder, 0, 1, "[ CHAT ROOM ]");
+
+  box(inputBorder, 0, 0);
+  mvwprintw(inputBorder, 0, 1, "[ MESSAGE ]");
+
+  wrefresh(chatBorder);
+  wrefresh(chatWin);
+  wrefresh(inputBorder);
+  wrefresh(inputWin);
+}
+
+inline void cleanupNcurses() {
+  delwin(chatWin);
+  delwin(inputWin);
+  delwin(chatBorder);
+  delwin(inputBorder);
+  endwin();
+}
+
+inline std::string create_packet_stream(PacketHeader &header,
+                                        const char *payload) {
+  return std::string(header.to_cstr() + payload);
+}
+
+inline void safePrint(const std::string &msg) {
+  int color_pair = 0;
+
+  if (msg.find("[SERVER]") != std::string::npos ||
+      msg.find("[ADMIN]") != std::string::npos) {
+    color_pair = 1;
+  } else if (msg.find("You:") == 0) {
+    color_pair = 2;
+  } else if (msg.find("Error") != std::string::npos ||
+             msg.find("Quitting") != std::string::npos) {
+    color_pair = 3;
+  }
+
+  if (color_pair > 0)
+    wattron(chatWin, COLOR_PAIR(color_pair));
+
+  wprintw(chatWin, "%s\n", msg.c_str());
+
+  if (color_pair > 0)
+    wattroff(chatWin, COLOR_PAIR(color_pair));
+
+  wrefresh(chatWin);
+  wrefresh(inputWin);
 }
 
 #endif
