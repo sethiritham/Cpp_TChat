@@ -83,9 +83,11 @@ inline void cleanupNcurses() {
   endwin();
 }
 
-inline std::string create_packet_stream(PacketHeader &header,
-                                        const char *payload) {
-  return std::string(header.to_cstr() + payload);
+inline std::vector<uint8_t> create_packet_stream(PacketHeader &header,
+                                                 const char *payload) {
+
+  std::string char_stream = std::string(header.to_cstr() + payload).c_str();
+  return std::vector<uint8_t>(char_stream.begin(), char_stream.end());
 }
 
 inline void safePrint(const std::string &msg) {
