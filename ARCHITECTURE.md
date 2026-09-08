@@ -132,20 +132,49 @@ Frame
 |__ u32 Payload Length
 ```
 
+#### MAGIC PROTOCOL
+
+- Custom protocol for the application
+- Protocol verified for every packet transmitted
+
+##### Success
+
+- Protocol verified and message is transmitted and received by the intended receiver/s
+
+##### Failure
+
+- Absence of this protocol results in rejection of the packet and disconnection
+of the client from where the packet was transmitted
+
+#### MESSAGE TYPE ID
+
+- Type of message being transmitted in the given packet
+- The types are:
+  - FILE_META (0x00)
+    - META-DATA of the file being sent
+  - FILE_CHUNK - (0x01)
+    - File data
+  - MSG - (0x02)
+    - Normal text message
+  - CMND - (0x03)
+    - Pre defined chat-commands
+    - COMMANDS:
+      - ```\quit``` (Server & Client) : Participant quits the program
+      - ```\kick [CLIENT NAME]``` (Server) : Kicks the given client from the program/chat
+  - ACK - (0x04)
+    - Acknowledgement packet
+  - PRESENCE - (0x05)
+    - Shows the status of the participants
+    - Types:
+      - Typing
+      - Connected
+      - Disconnected
+  - POLL - 6
+  - PING - 7
+
 ```bash
 Packet = Header + Payload
 ```
-
-### Types
-
-- FILE_META - 0
-- FILE_CHUNK - 1
-- MSG - 2
-- CMND - 3
-- ACK - 4
-- PRESENCE - 5
-- POLL - 6
-- PING - 7
 
 ### Success packets
 
