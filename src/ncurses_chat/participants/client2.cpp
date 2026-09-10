@@ -54,12 +54,12 @@ int client_login() {
   if (ip.empty())
     ip = "127.0.0.1";
 
-  struct sockaddr_in serverAddress;
+  struct sockaddr_in serverAddress{};
   serverAddress.sin_family = AF_INET;
   serverAddress.sin_port = htons(PORT);
   serverAddress.sin_addr.s_addr = inet_addr(ip.c_str());
 
-  if (inet_pton(AF_INET, ip.c_str(), &serverAddress.sin_addr) <= 0) {
+  if (inet_pton(AF_INET, ip.c_str(), &serverAddress.sin_addr) < 0) {
     std::cerr << "Invalid IP address" << std::endl;
     return false;
   }
@@ -121,17 +121,6 @@ int main() {
   }
 
   signal(SIGPIPE, SIG_IGN);
-
-  sockaddr_in server_addr{};
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(PORT);
-  inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
-
-  if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) <
-      0) {
-    std::cerr << "ERROR: UNABLE TO CONNECT TO THE SERVER" << std::endl;
-    return -1;
-  }
 
   set_nonblocking(client_fd);
   set_nonblocking(STDIN_FILENO);
