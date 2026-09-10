@@ -68,7 +68,7 @@ void process_client_stream(ClientSession &session) {
       return;
     }
 
-    uint32_t payload_len = header.payload_length;
+    uint32_t payload_len = ntohl(header.payload_length);
     size_t total_size = sizeof(PacketHeader) + payload_len;
 
     if (session.rx_buffer.size() < total_size) {
@@ -76,8 +76,14 @@ void process_client_stream(ClientSession &session) {
       break;
     }
 
-    std::vector<uint8_t> complete_packet(session.rx_buffer.begin(),
-                                         session.rx_buffer.end());
+    std::vector<uint8_t> complete_packet(
+        session.rx_buffer.begin(), session.rx_buffer.begin() + total_size);
+
+    std::string message(session.rx_buffer.begin() + sizeof(PacketHeader),
+                        session.rx_buffer.begin() + total_size);
+
+    session.rx_buffer.erase(session.rx_buffer.begin(),
+                            session.rx_buffer.begin() + total_size);
 
     broadcast(session.fd, complete_packet);
   }
@@ -98,7 +104,11 @@ int main() {
 
   addr.sin_port = htons(PORT);
 
-  bind(server_fd, (struct sockaddr *)&addr, sizeof(addr));
+  if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    perror("bind");
+    return -1;
+  }
+
   listen(server_fd, SOMAXCONN);
 
   set_nonblocking(server_fd);
@@ -108,7 +118,7 @@ int main() {
   struct kevent init_evs[2];
   EV_SET(&init_evs[0], server_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
          nullptr);
-  EV_SET(&init_evs[0], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+  EV_SET(&init_evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
          nullptr);
   kevent(kq, init_evs, 2, nullptr, 0, nullptr);
 
@@ -144,6 +154,12 @@ int main() {
         int client_fd =
             accept(server_fd, (struct sockaddr *)&client_addr, &len);
 
+        if (client_fd < 0) {
+          std::cout << "[ERROR] accept() failed: " << strerror(errno)
+                    << std::endl;
+          continue;
+        }
+
         if (client_fd >= 0) {
           set_nonblocking(client_fd);
           struct kevent ev;
@@ -153,8 +169,6 @@ int main() {
           kevent(kq, &ev, 1, nullptr, 0, nullptr);
 
           g_clients[client_fd] = ClientSession(client_fd);
-          g_clients[client_fd].rx_buffer = {};
-          g_clients[client_fd].tx_buffer = {};
           g_clients[client_fd].username = "";
 
           std::cout << "Accepted client fd: " << client_fd << std::endl;
