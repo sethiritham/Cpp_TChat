@@ -18,7 +18,10 @@
 
 ### Server Side
 
-- Server verifies client credentials from the user_pass database
+- Each packet sent by the client is verified on the server side
+- Protocol verification - universal for all packets
+- Type verification - Specific depending on the type context
+(Where the packet is being sent from)
 
 ### Client Side
 
@@ -26,11 +29,13 @@
 
 - Must enter their Username and The room password given to them by the server admin
 - Room password verified by server side
+- Packet sent with TYPE ID = 0x08
+- Packet Structure : ```PacketHeaderUsername|Password```
 
 #### Messaging
 
-- Each Packet sent by the client contains a magic_protocol in its header which
-is verified by the server and the packet is allowed
+- Packet sent with TYPE ID = 0x02
+- Packet Structure : ```PacketHeaderPayload```
 
 #### Invariants
 
@@ -38,7 +43,13 @@ is verified by the server and the packet is allowed
   - Username
   - Password
   - Server IP
-To join a particular connection
+  To join a particular connection
+
+- Each packet must contain all of :
+  - Protocol key (universal)
+  - Version (universal)
+  - TYPE ID (type Specific)
+  For a packet to be accepted by the server
 
 #### Success
 
@@ -47,9 +58,9 @@ To join a particular connection
   - Server sends an acknowledgement packet to the client
   - Server sends a broadcast message to all current clients announcing:
 
-```
-clientX has joined the chat
-```
+- Packet sent:
+  - Packet received by the server
+  - Packet parsed and inferred on by the server
 
 #### Failure
 
@@ -74,7 +85,8 @@ Server will send a failure packet to the client (invalid credentials)
 
 ### Failures
 
-- In case client disconnects from a running session, Server recieves a PING, Client has an option to reconnect
+- In case client disconnects from a running session, Server recieves a PING,
+Client has an option to reconnect
 
 ## Chat thread architecture
 
@@ -171,6 +183,9 @@ of the client from where the packet was transmitted
       - Disconnected
   - POLL - 6
   - PING - 7
+  - LGN - (0x08)
+    - Login credentials of the client
+    - The credentials structure
 
 ```bash
 Packet = Header + Payload
