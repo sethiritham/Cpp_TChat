@@ -16,7 +16,7 @@ int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
     sqlite3_free(error_msg);
     return -1;
   } else {
-    std::cout << "Table created successfully!" << std::endl;
+    std::cout << "COMMAND EXECUTED!" << std::endl;
     return 0;
   }
 }
@@ -79,4 +79,36 @@ bool add_user(const std::string &username, const std::string &password) {
 
   sqlite3_finalize(stmt);
   return true;
+}
+
+bool verify_user(const std::string &username, const std::string &password) {
+  sqlite3 *DB;
+
+  sqlite3_open("user_pass.db", &DB);
+  std::string sql =
+      "SELECT password_hash from users where username = ? LIMIT 1;";
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(DB, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(DB)
+              << std::endl;
+    return "";
+  }
+
+  sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_STATIC);
+  std::string result = "";
+
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const unsigned char *text = sqlite3_column_text(stmt, 0);
+    if (text != nullptr) {
+      result = reinterpret_cast<const char *>(text);
+    }
+  } else {
+    std::cout << "User not found or column is empty." << std::endl;
+    return false;
+  }
+
+  sqlite3_finalize(stmt);
+
+  return bcrypt::validatePassword(password, result);
 }
