@@ -1,3 +1,4 @@
+#include "auth.hpp"
 #include "chat2.hpp"
 #include <arpa/inet.h>
 #include <cctype>
@@ -40,17 +41,43 @@ bool set_nonblocking(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1;
 }
 
+std::string read_input_line(size_t max_len) {
+  echo();
+  std::string buffer(max_len, '\0');
+  getnstr(&buffer[0], max_len - 1);
+  buffer.resize(std::strlen(buffer.c_str()));
+  return buffer;
+}
+
+bool register_client(ClientSession &session) {
+  std::string name, pass;
+
+  printw("\nUSERNAME: ");
+  refresh();
+  name = read_input_line(62);
+
+  printw("PASSWORD: ");
+  refresh();
+
+  pass = read_input_line(15);
+
+  if (!add_user(name, pass)) {
+    printw("COULD NOT ADD USER TO THE DATABASE");
+    refresh();
+    return false;
+  }
+
+  return true;
+}
+
 int client_login() {
-
-  ClientSession session;
-
-  int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-  session.fd = client_fd;
-  g_clients[client_fd] = session;
+  setupNcurses();
+  nodelay(inputWin, true);
 
   std::string ip;
-  std::cout << "Enter server IP (Press enter for localhost 127.0.0.1): ";
-  std::getline(std::cin, ip);
+  printw("Enter server IP (Press enter for localhost 127.0.0.1): ");
+  ip = read_input_line(15);
+
   if (ip.empty())
     ip = "127.0.0.1";
 
@@ -60,53 +87,62 @@ int client_login() {
   serverAddress.sin_addr.s_addr = inet_addr(ip.c_str());
 
   if (inet_pton(AF_INET, ip.c_str(), &serverAddress.sin_addr) < 0) {
-    std::cerr << "Invalid IP address" << std::endl;
+    perror("INVALID IP");
     return false;
+  }
+
+  clear();
+  move(0, 0);
+
+  printw("REEGISTER OR LOGIN\n");
+  printw("1 - REGISTER\n2 - LOGIN\n");
+
+  refresh();
+
+  int ch;
+  ch = getch();
+
+  ClientSession session;
+
+  int client_fd = socket(AF_INET, SOCK_STREAM, 0);
+  session.fd = client_fd;
+  g_clients[client_fd] = session;
+
+  if (ch == '1' || ch == 'r' || ch == 'R') {
+    register_client(session);
+    clear();
+    move(0, 0);
   }
 
   if (connect(session.fd, (struct sockaddr *)&serverAddress,
               sizeof(serverAddress)) < 0) {
-    std::cerr << "Error connecting to server" << std::endl;
+    perror("Error connecting to server");
     return false;
   }
 
   std::string name, pass;
-  std::cout << "Enter your name: ";
-  std::getline(std::cin, name);
-  std::cout << "Enter your password: ";
-  std::getline(std::cin, pass);
+
+  printw("------LOGIN------\n");
+  refresh();
+
+  printw("USERNAME: ");
+  refresh();
+  name = read_input_line(62);
+
+  printw("\nPASSWORD: ");
+  refresh();
+
+  pass = read_input_line(15);
   std::string creds = name + "|" + pass;
 
   std::vector<uint8_t> lgn_packet = create_packet_stream(0x08, creds);
 
-  write(client_fd, lgn_packet.data(), lgn_packet.size());
+  write(session.fd, lgn_packet.data(), lgn_packet.size());
 
-  session.username = name;
-  // Hash and Store password
-
-  // uint8_t buffer[1024];
-  // ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer));
-  //
-  // if(!(bytes_read > 0))
-  // {
-  //   perror("[SERVER] : DID NOT RECEIVE LOGIN PACKET\n");
-  //   return -1;
-  // }
-  //
-  // PacketHeader header;
-  // std::memcpy(&header, buffer, sizeof(PacketHeader));
-  //
-  // if(header.type != 0x08)
-  // {
-  //   std::cout<< "[SERVER] : DID NOT RECEIVE A VALID LOGIN PACKET (TYPE
-  //   WRONG)\n"; return -1;
-  // }
-  //
-  // if (std::string(buffer) != "OK") {
-  //   std::cerr << "Invalid credentials" << std::endl;
-  //   close(session.fd);
-  //   return false;
-  // }
+  clear();
+  move(0, 0);
+  refresh();
+  endwin();
 
   return client_fd;
 }
@@ -114,6 +150,8 @@ int client_login() {
 int main() {
 
   int client_fd = client_login();
+
+  setupNcurses();
 
   if (client_fd < 0) {
     perror("LOGIN ERROR");
@@ -124,9 +162,6 @@ int main() {
 
   set_nonblocking(client_fd);
   set_nonblocking(STDIN_FILENO);
-
-  setupNcurses();
-  nodelay(inputWin, true);
 
   int kq = kqueue();
 
@@ -188,6 +223,8 @@ int main() {
           } else if (isprint(ch)) {
             input_buffer.push_back(static_cast<char>(ch));
           }
+
+          werase(inputWin);
           mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
           wrefresh(inputWin);
         }
