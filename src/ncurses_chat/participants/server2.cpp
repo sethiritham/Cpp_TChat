@@ -1,3 +1,4 @@
+#include "auth.hpp"
 #include "chat2.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
@@ -9,6 +10,7 @@
 #include <iostream>
 #include <map>
 #include <netinet/in.h>
+#include <ostream>
 #include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -36,6 +38,13 @@ bool set_nonblocking(int fd) {
   if (flags == -1)
     return false;
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1;
+}
+
+bool set_blocking(int fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags == -1)
+    return false;
+  return fcntl(fd, F_SETFL, flags | ~O_NONBLOCK) != -1;
 }
 
 void broadcast(int sender_fd, const std::vector<uint8_t> &packet) {
@@ -87,6 +96,75 @@ void process_client_stream(ClientSession &session) {
 
     broadcast(session.fd, complete_packet);
   }
+}
+
+int handle_client(int fd) {
+  set_blocking(fd);
+  struct timeval tv{.tv_sec = 3, .tv_usec = 0};
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+  char buffer[512];
+
+  ssize_t bytes_read = read(fd, buffer, sizeof(buffer));
+
+  if (bytes_read < static_cast<ssize_t>(sizeof(PacketHeader))) {
+    std::cout << "DID NOT RECIEVE AUTH PACKET" << std::endl;
+    return -1;
+  }
+
+  PacketHeader header;
+
+  std::memcpy(&header, buffer, sizeof(PacketHeader));
+
+  if (ntohs(header.magic) != PROTOCOL_KEY || ntohl(header.payload_length) < 0) {
+    std::cout << "INVALID AUTH PACKET (PROTOCOL KEY MISSING OR PACKET EMPTY)"
+              << std::endl;
+    return -1;
+  }
+
+  char payload[512];
+
+  int payload_length = ntohl(header.payload_length);
+
+  std::memcpy(payload, buffer + sizeof(PacketHeader), payload_length);
+
+  payload[ntohl(header.payload_length)] = '\0';
+
+  std::string message(buffer + sizeof(PacketHeader), payload_length);
+
+  if (message.find("|") == std::string::npos) {
+    close(fd);
+    return -1;
+  }
+
+  std::string name = message.substr(0, message.find("|"));
+  std::string password = message.substr(message.find("|") + 1);
+
+  std::vector<uint8_t> packet;
+
+  if (header.type == 0x09) {
+    if (!(register_client(name, password))) {
+      packet = create_packet_stream(0x09, "NO");
+      send(fd, packet.data(), packet.size(), 0);
+      return -1;
+    }
+  } else if (header.type == 0x08) {
+    if (!verify_user(name, password)) {
+      packet = create_packet_stream(0x08, "NO");
+      send(fd, packet.data(), packet.size(), 0);
+      return -1;
+    }
+  }
+
+  std::cout << "[AUTH SUCCESS] : " << name << " joined the chat" << std::endl;
+
+  packet = create_packet_stream(0x08, "OK");
+  send(fd, packet.data(), packet.size(), 0);
+
+  g_clients[fd] = ClientSession(fd);
+  g_clients[fd].username = name;
+
+  return 0;
 }
 
 int main() {
@@ -151,27 +229,25 @@ int main() {
       else if (current_fd == server_fd) {
         sockaddr_in client_addr;
         socklen_t len = sizeof(client_addr);
+
         int client_fd =
             accept(server_fd, (struct sockaddr *)&client_addr, &len);
 
-        if (client_fd < 0) {
-          std::cout << "[ERROR] accept() failed: " << strerror(errno)
-                    << std::endl;
-          continue;
-        }
-
         if (client_fd >= 0) {
-          set_nonblocking(client_fd);
-          struct kevent ev;
+          int auth_result = handle_client(client_fd);
 
-          EV_SET(&ev, client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
-                 nullptr);
-          kevent(kq, &ev, 1, nullptr, 0, nullptr);
+          if (auth_result == 0) {
+            set_nonblocking(client_fd);
+            struct kevent ev;
 
-          g_clients[client_fd] = ClientSession(client_fd);
-          g_clients[client_fd].username = "";
+            EV_SET(&ev, client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+                   nullptr);
+            kevent(kq, &ev, 1, nullptr, 0, nullptr);
 
-          std::cout << "Accepted client fd: " << client_fd << std::endl;
+            std::cout << "Accepted client\nNAME: "
+                      << g_clients[client_fd].username << std::endl;
+          }
+        } else {
         }
 
         continue;

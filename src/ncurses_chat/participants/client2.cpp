@@ -9,7 +9,6 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
-#include <iostream>
 #include <map>
 #include <netinet/in.h>
 #include <string>
@@ -39,35 +38,6 @@ bool set_nonblocking(int fd) {
   if (flags == -1)
     return false;
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1;
-}
-
-std::string read_input_line(size_t max_len) {
-  echo();
-  std::string buffer(max_len, '\0');
-  getnstr(&buffer[0], max_len - 1);
-  buffer.resize(std::strlen(buffer.c_str()));
-  return buffer;
-}
-
-bool register_client(ClientSession &session) {
-  std::string name, pass;
-
-  printw("\nUSERNAME: ");
-  refresh();
-  name = read_input_line(62);
-
-  printw("PASSWORD: ");
-  refresh();
-
-  pass = read_input_line(15);
-
-  if (!add_user(name, pass)) {
-    printw("COULD NOT ADD USER TO THE DATABASE");
-    refresh();
-    return false;
-  }
-
-  return true;
 }
 
 int client_login() {
@@ -108,22 +78,19 @@ int client_login() {
   session.fd = client_fd;
   g_clients[client_fd] = session;
 
-  if (ch == '1' || ch == 'r' || ch == 'R') {
-    register_client(session);
-    clear();
-    move(0, 0);
-  }
+  uint8_t pkt_type;
 
-  if (connect(session.fd, (struct sockaddr *)&serverAddress,
-              sizeof(serverAddress)) < 0) {
-    perror("Error connecting to server");
-    return false;
-  }
+  pkt_type = (ch == '1' || ch == 'r' || ch == 'R') ? 0x09 : 0x08;
 
   std::string name, pass;
 
-  printw("------LOGIN------\n");
-  refresh();
+  if (pkt_type == 0x09) {
+    printw("------REGISTER------\n");
+    refresh();
+  } else {
+    printw("------LOGIN------\n");
+    refresh();
+  }
 
   printw("USERNAME: ");
   refresh();
@@ -131,16 +98,54 @@ int client_login() {
 
   printw("\nPASSWORD: ");
   refresh();
-
   pass = read_input_line(15);
+
   std::string creds = name + "|" + pass;
 
-  std::vector<uint8_t> lgn_packet = create_packet_stream(0x08, creds);
+  if (connect(session.fd, (struct sockaddr *)&serverAddress,
+              sizeof(serverAddress)) < 0) {
+    perror("Error connecting to server");
+    return false;
+  }
 
-  write(session.fd, lgn_packet.data(), lgn_packet.size());
+  auto auth_packet = create_packet_stream(pkt_type, creds);
+  send(client_fd, auth_packet.data(), auth_packet.size(), 0);
 
   clear();
   move(0, 0);
+  refresh();
+  endwin();
+
+  uint8_t response_buffer[256];
+  ssize_t bytes_read =
+      read(client_fd, response_buffer, sizeof(response_buffer));
+
+  if (bytes_read < static_cast<ssize_t>(sizeof(PacketHeader))) {
+    cleanupNcurses();
+    std::cerr << "Authentication failed: Server closed connection or sent no "
+                 "response.\n";
+    close(client_fd);
+    return -1;
+  }
+
+  PacketHeader auth_header;
+
+  std::memcpy(&auth_header, response_buffer, sizeof(PacketHeader));
+  uint32_t payload_length = ntohl(auth_header.payload_length);
+
+  std::string ack_msg(reinterpret_cast<const char *>(response_buffer) +
+                          sizeof(PacketHeader),
+                      payload_length);
+
+  if (ack_msg != "OK") {
+    cleanupNcurses();
+    std::cerr << "Authentication / Registration failed: Server returned '"
+              << ack_msg << "'\n";
+    close(client_fd);
+    return -1;
+  }
+
+  clear();
   refresh();
   endwin();
 
