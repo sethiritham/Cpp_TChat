@@ -246,8 +246,11 @@ int main() {
             }
 
             if (!input_buffer.empty()) {
+              std::string msg = "[YOU]: " + input_buffer;
+              input_buffer = "[SERVER]: " + input_buffer;
               auto packet = create_packet_stream(0x01, input_buffer);
 
+              safePrint(msg);
               broadcast(server_fd, packet);
 
               input_buffer.clear();
