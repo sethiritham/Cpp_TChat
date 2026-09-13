@@ -152,8 +152,6 @@ int client_login() {
   return client_fd;
 }
 
-void display_packet(const std::vector<uint8_t> &packet) {}
-
 int main() {
 
   int client_fd = client_login();
@@ -246,7 +244,7 @@ int main() {
           while (rx_buffer.size() >= sizeof(PacketHeader)) {
             PacketHeader header;
             std::memcpy(&header, rx_buffer.data(), sizeof(PacketHeader));
-            uint32_t payload_len = header.payload_length;
+            uint32_t payload_len = ntohl(header.payload_length);
             size_t total_size = payload_len + sizeof(PacketHeader);
 
             if (rx_buffer.size() < total_size) {
