@@ -94,6 +94,8 @@ void process_client_stream(ClientSession &session) {
     session.rx_buffer.erase(session.rx_buffer.begin(),
                             session.rx_buffer.begin() + total_size);
 
+    std::cout << "[" << session.username << "]: " << message << std::endl;
+
     broadcast(session.fd, complete_packet);
   }
 }
@@ -146,12 +148,14 @@ int handle_client(int fd) {
     if (!(register_client(name, password))) {
       packet = create_packet_stream(0x09, "NO");
       send(fd, packet.data(), packet.size(), 0);
+      close(fd);
       return -1;
     }
   } else if (header.type == 0x08) {
     if (!verify_user(name, password)) {
       packet = create_packet_stream(0x08, "NO");
       send(fd, packet.data(), packet.size(), 0);
+      close(fd);
       return -1;
     }
   }
@@ -202,6 +206,10 @@ int main() {
 
   std::cout << "[SERVER] active on PORT: " << PORT << std::endl;
   std::vector<struct kevent> event_list(MAX_EVENTS);
+
+  if (!create_table()) {
+    return -1;
+  }
 
   while (true) {
     int nevents =
