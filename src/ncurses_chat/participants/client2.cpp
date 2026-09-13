@@ -152,6 +152,8 @@ int client_login() {
   return client_fd;
 }
 
+void display_packet(const std::vector<uint8_t> &packet) {}
+
 int main() {
 
   int client_fd = client_login();
