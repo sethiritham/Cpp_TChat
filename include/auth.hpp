@@ -17,7 +17,6 @@ int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
     sqlite3_free(error_msg);
     return -1;
   } else {
-    std::cout << "COMMAND EXECUTED!" << std::endl;
     return 0;
   }
 }
@@ -53,7 +52,8 @@ bool add_user(const std::string &username, const std::string &password) {
   int exit = sqlite3_open("user_pass.db", &DB);
 
   if (exit != SQLITE_OK) {
-    std::cout << "UNABLE TO OPEN DATABASE" << std::endl;
+    std::string error_msg = "UNABLE TO OPEN DATABASE";
+    safePrint(error_msg);
     return false;
   }
 
@@ -72,15 +72,19 @@ bool add_user(const std::string &username, const std::string &password) {
 
     if (step_res == SQLITE_DONE) {
       sqlite3_int64 new_id = sqlite3_last_insert_rowid(DB);
-      std::cout << "Added " << username << " with Auto-ID: " << new_id
-                << std::endl;
+      std::string ack_msg = "Added " + username;
+      safePrint(ack_msg);
       success = true;
     } else if (step_res == SQLITE_CONSTRAINT ||
                step_res == SQLITE_CONSTRAINT_UNIQUE) {
-      std::cerr << "Error: The name '" << username << "' already exists!"
-                << std::endl;
+      std::string error_msg =
+          "Error: The name " + username + " already exists!";
+      safePrint(error_msg);
+      success = false;
     } else {
-      std::cout << "Execution failed" << std::endl;
+      std::string error_msg = "Execution failed";
+      safePrint(error_msg);
+      success = false;
     }
   }
 
@@ -98,8 +102,9 @@ bool verify_user(const std::string &username, const std::string &password) {
 
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(DB, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(DB)
-              << std::endl;
+    std::string error_msg =
+        "Failed to prepare statement: " + std::string(sqlite3_errmsg(DB));
+    safePrint(error_msg);
     return false;
   }
 
@@ -112,7 +117,8 @@ bool verify_user(const std::string &username, const std::string &password) {
       result = reinterpret_cast<const char *>(text);
     }
   } else {
-    std::cout << "User not found or column is empty." << std::endl;
+    std::string error_msg = "User not found or column is empty.\n";
+    safePrint(error_msg);
     return false;
   }
 
@@ -131,12 +137,14 @@ std::string read_input_line(size_t max_len) {
 
 bool register_client(const std::string &name, const std::string &pass) {
   if (!add_user(name, pass)) {
-    printf("COULD NOT ADD USER TO THE DATABASE");
+    std::string error_msg = "COULD NOT ADD USER TO THE DATABASE";
+    safePrint(error_msg);
     refresh();
     return false;
   }
 
-  printf("CLIENT : %s, REGISTERED", name.c_str());
+  std::string ack_msg = "CLIENT : " + name + "REGISTERED";
+  safePrint(ack_msg);
 
   return true;
 }

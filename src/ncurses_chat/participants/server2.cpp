@@ -71,7 +71,8 @@ void process_client_stream(ClientSession &session) {
     std::memcpy(&header, session.rx_buffer.data(), sizeof(PacketHeader));
 
     if (ntohs(header.magic) != PROTOCOL_KEY) {
-      std::cout << "Packet does not contain protocol key" << std::endl;
+      std::string err_msg = "Packet does not contain protocol key";
+      safePrint(err_msg);
       close(session.fd);
       g_clients.erase(session.fd);
       return;
@@ -81,7 +82,8 @@ void process_client_stream(ClientSession &session) {
     size_t total_size = sizeof(PacketHeader) + payload_len;
 
     if (session.rx_buffer.size() < total_size) {
-      std::cout << "[INCOMPLETE PACKET]" << std::endl;
+      std::string err_msg = "[INCOMPLETE PACKET]\n";
+      safePrint(err_msg);
       break;
     }
 
@@ -94,7 +96,8 @@ void process_client_stream(ClientSession &session) {
     session.rx_buffer.erase(session.rx_buffer.begin(),
                             session.rx_buffer.begin() + total_size);
 
-    std::cout << "[" << session.username << "]: " << message << std::endl;
+    std::string usr_msg = "[" + session.username + "]: " + message;
+    safePrint(usr_msg);
 
     broadcast(session.fd, complete_packet);
   }
@@ -110,7 +113,8 @@ int handle_client(int fd) {
   ssize_t bytes_read = read(fd, buffer, sizeof(buffer));
 
   if (bytes_read < static_cast<ssize_t>(sizeof(PacketHeader))) {
-    std::cout << "DID NOT RECIEVE AUTH PACKET" << std::endl;
+    std::string err_msg = "DID NOT RECIEVE AUTH PACKET\n";
+    safePrint(err_msg);
     return -1;
   }
 
@@ -119,8 +123,9 @@ int handle_client(int fd) {
   std::memcpy(&header, buffer, sizeof(PacketHeader));
 
   if (ntohs(header.magic) != PROTOCOL_KEY || ntohl(header.payload_length) < 0) {
-    std::cout << "INVALID AUTH PACKET (PROTOCOL KEY MISSING OR PACKET EMPTY)"
-              << std::endl;
+    std::string err_msg =
+        "INVALID AUTH PACKET (PROTOCOL KEY MISSING OR PACKET EMPTY)";
+    safePrint(err_msg);
     return -1;
   }
 
@@ -160,7 +165,8 @@ int handle_client(int fd) {
     }
   }
 
-  std::cout << "[AUTH SUCCESS] : " << name << " joined the chat" << std::endl;
+  std::string auth_msg = "[AUTH SUCCESS] : " + name + " joined the chat";
+  safePrint(auth_msg);
 
   packet = create_packet_stream(0x08, "OK");
   send(fd, packet.data(), packet.size(), 0);
@@ -193,6 +199,10 @@ int main() {
 
   listen(server_fd, SOMAXCONN);
 
+  setupNcurses();
+  safePrint("Server started on port 8080");
+  safePrint("Waiting for clients to join");
+
   set_nonblocking(server_fd);
   set_nonblocking(STDIN_FILENO);
 
@@ -204,14 +214,17 @@ int main() {
          nullptr);
   kevent(kq, init_evs, 2, nullptr, 0, nullptr);
 
-  std::cout << "[SERVER] active on PORT: " << PORT << std::endl;
+  safePrint("[SERVER] active on PORT: 8080");
   std::vector<struct kevent> event_list(MAX_EVENTS);
 
   if (!create_table()) {
     return -1;
   }
 
-  while (true) {
+  std::string input_buffer;
+  bool running = true;
+
+  while (running) {
     int nevents =
         kevent(kq, nullptr, 0, event_list.data(), MAX_EVENTS, nullptr);
     if (nevents < 0) {
@@ -224,12 +237,33 @@ int main() {
       int current_fd = static_cast<int>(event_list[i].ident);
 
       if (current_fd == STDIN_FILENO) {
-        char buf[256];
-        ssize_t n = read(STDIN_FILENO, buf, sizeof(buf) - 1);
+        int ch;
+        while ((ch = wgetch(inputWin)) != ERR) {
+          if (ch == '\n' || ch == KEY_ENTER) {
+            if (input_buffer == "/quit") {
+              running = false;
+              break;
+            }
 
-        if (n > 0) {
-          buf[n] = '\0';
-          std::cout << "[ADMIN EXEC]: " << buf;
+            if (!input_buffer.empty()) {
+              auto packet = create_packet_stream(0x01, input_buffer);
+
+              broadcast(server_fd, packet);
+
+              input_buffer.clear();
+              werase(inputWin);
+              wrefresh(inputWin);
+            }
+          } else if (ch == KEY_BACKSPACE || ch == 127) {
+            if (!input_buffer.empty())
+              input_buffer.pop_back();
+          } else if (isprint(ch)) {
+            input_buffer.push_back(static_cast<char>(ch));
+          }
+
+          werase(inputWin);
+          mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
+          wrefresh(inputWin);
         }
 
       }
@@ -252,8 +286,9 @@ int main() {
                    nullptr);
             kevent(kq, &ev, 1, nullptr, 0, nullptr);
 
-            std::cout << "Accepted client\nNAME: "
-                      << g_clients[client_fd].username << std::endl;
+            std::string ack =
+                "Accepted client\nNAME: " + g_clients[client_fd].username;
+            safePrint(ack.c_str());
           }
         } else {
         }
@@ -269,15 +304,14 @@ int main() {
           auto &session = g_clients[current_fd];
           session.rx_buffer.insert(session.rx_buffer.end(), buffer,
                                    buffer + bytes_read);
-          std::cout << "[fd " << current_fd << "] Recieved: " << buffer
-                    << std::endl;
 
           process_client_stream(session);
 
         } else if (bytes_read == 0 || (bytes_read < 0 && (errno != EAGAIN))) {
           close(current_fd);
           g_clients.erase(current_fd);
-          std::cout << "Client disconnected on fd: " << current_fd << std::endl;
+          std::string ack = g_clients[current_fd].username + " disconnected!\n";
+          safePrint(ack);
         }
       }
     }
