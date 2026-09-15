@@ -12,7 +12,7 @@
 ### Client
 
 - Joins a given room hosted on a given IP (local host by default)
-- Reads and writes messages via the Send() and Recieve() functions
+- Reads and writes messages
 
 ## Authentication
 
