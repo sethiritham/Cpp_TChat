@@ -1,4 +1,6 @@
 #include "auth.hpp"
+#include <cstddef>
+#include <string>
 
 int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
   int exit;
@@ -121,6 +123,40 @@ bool verify_user(const std::string &username, const std::string &password) {
   sqlite3_close(DB);
 
   return bcrypt::validatePassword(password, result);
+}
+
+std::string read_password(size_t max_len) {
+  int ch;
+  int i = 0;
+
+  char password[64];
+
+  noecho();
+
+  while (i < max_len - 1) {
+    ch = getch();
+
+    if (ch == '\n' || ch == '\r') {
+      break;
+    }
+
+    else if (ch == KEY_BACKSPACE || ch == 127 || ch == '\b') {
+      if (i > 0) {
+        i--;
+        printw("\b \b");
+      }
+    } else if (ch >= 32 && ch <= 126) {
+      password[i] = ch;
+      i++;
+      printw("*");
+    }
+  }
+
+  password[i] = '\0';
+
+  echo();
+
+  return std::string(password);
 }
 
 std::string read_input_line(size_t max_len) {
