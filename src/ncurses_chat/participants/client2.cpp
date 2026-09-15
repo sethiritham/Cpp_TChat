@@ -98,7 +98,7 @@ int client_login() {
 
   printw("\nPASSWORD: ");
   refresh();
-  pass = read_input_line(15);
+  pass = read_password(15);
 
   g_clients[client_fd].username = name;
 
