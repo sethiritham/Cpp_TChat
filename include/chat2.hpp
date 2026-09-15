@@ -13,6 +13,20 @@ constexpr int PORT = 8080;
 constexpr int MAX_EVENTS = 32;
 constexpr uint16_t PROTOCOL_KEY = 0x4354; // "CT"
 
+/**
+ * TYPES:
+ * - FILE_META = 0x00
+ * - FILE_CHUNK = 0x01
+ * - MESSAGE = 0x02
+ * - CMND = 0x03
+ * - ACK = 0x04
+ * - PRESENCE = 0x05
+ * - POLL = 0x06
+ * - PING = 0x07
+ * - AUTH = 0x08
+ * - RGSTR = 0x09
+ */
+
 #pragma pack(push, 1)
 struct PacketHeader {
   uint16_t magic;
@@ -20,17 +34,6 @@ struct PacketHeader {
   uint8_t type;
   uint32_t sequence_id;
   uint32_t payload_length;
-
-  std::string to_cstr() const {
-
-    char buffer[32];
-    snprintf(buffer, sizeof(buffer),
-             "%05" PRIu16 "%03" PRIu8 "%03" PRIu8 "%10" PRIu32 "%10" PRIu32,
-             this->magic, this->version, this->type, this->sequence_id,
-             this->payload_length);
-
-    return std::string(buffer);
-  }
 };
 #pragma pack(pop)
 
@@ -83,11 +86,26 @@ inline void cleanupNcurses() {
   endwin();
 }
 
-inline std::vector<uint8_t> create_packet_stream(PacketHeader &header,
-                                                 const char *payload) {
+inline std::vector<uint8_t> create_packet_stream(const uint8_t &type,
+                                                 const std::string &payload) {
 
-  std::string char_stream = std::string(header.to_cstr() + payload).c_str();
-  return std::vector<uint8_t>(char_stream.begin(), char_stream.end());
+  PacketHeader header{};
+
+  header.type = type;
+  header.magic = htons(PROTOCOL_KEY);
+  header.sequence_id = htonl(1);
+  header.payload_length = htonl(payload.length());
+
+  std::vector<uint8_t> packet(sizeof(PacketHeader) + payload.size());
+
+  std::memcpy(packet.data(), &header, sizeof(PacketHeader));
+
+  if (!payload.empty()) {
+    std::memcpy(packet.data() + sizeof(PacketHeader), payload.data(),
+                payload.size());
+  }
+
+  return packet;
 }
 
 inline void safePrint(const std::string &msg) {
@@ -96,7 +114,7 @@ inline void safePrint(const std::string &msg) {
   if (msg.find("[SERVER]") != std::string::npos ||
       msg.find("[ADMIN]") != std::string::npos) {
     color_pair = 1;
-  } else if (msg.find("You:") == 0) {
+  } else if (msg.find("[YOU]") == 0) {
     color_pair = 2;
   } else if (msg.find("Error") != std::string::npos ||
              msg.find("Quitting") != std::string::npos) {
