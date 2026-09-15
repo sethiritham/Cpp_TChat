@@ -9,8 +9,11 @@ BCRYPT_SRCS := \
 	src/bcrypt/bcrypt.cpp \
 	src/bcrypt/blowfish.cpp
 
-SERVER_SRC := src/ncurses_chat/participants/server2.cpp
-CLIENT_SRC := src/ncurses_chat/participants/client2.cpp
+
+SERVER_SRC := src/ncurses_chat/participants/server2.cpp\
+							src/ncurses_chat/auth/auth.cpp
+CLIENT_SRC := src/ncurses_chat/participants/client2.cpp\
+							src/ncurses_chat/auth/auth.cpp
 
 SERVER_OBJS := $(SERVER_SRC:.cpp=.o) $(BCRYPT_SRCS:.cpp=.o)
 CLIENT_OBJS := $(CLIENT_SRC:.cpp=.o) $(BCRYPT_SRCS:.cpp=.o)
