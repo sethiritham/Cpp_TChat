@@ -100,6 +100,8 @@ int client_login() {
   refresh();
   pass = read_input_line(15);
 
+  g_clients[client_fd].username = name;
+
   std::string creds = name + "|" + pass;
 
   if (connect(session.fd, (struct sockaddr *)&serverAddress,
@@ -114,7 +116,6 @@ int client_login() {
   clear();
   move(0, 0);
   refresh();
-  endwin();
 
   uint8_t response_buffer[256];
   ssize_t bytes_read =
@@ -213,6 +214,9 @@ int main() {
 
             if (!input_buffer.empty()) {
               safePrint("[YOU] : " + input_buffer);
+
+              input_buffer =
+                  "[" + g_clients[client_fd].username + "]: " + input_buffer;
 
               auto packet = create_packet_stream(0x01, input_buffer);
 
