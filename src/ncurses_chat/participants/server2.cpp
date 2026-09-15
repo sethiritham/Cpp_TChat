@@ -96,7 +96,7 @@ void process_client_stream(ClientSession &session) {
     session.rx_buffer.erase(session.rx_buffer.begin(),
                             session.rx_buffer.begin() + total_size);
 
-    std::string usr_msg = "[" + session.username + "]: " + message;
+    std::string usr_msg = message;
     safePrint(usr_msg);
 
     broadcast(session.fd, complete_packet);
@@ -290,8 +290,11 @@ int main() {
             kevent(kq, &ev, 1, nullptr, 0, nullptr);
 
             std::string ack =
-                "Accepted client\nNAME: " + g_clients[client_fd].username;
-            safePrint(ack.c_str());
+                "ACCEPTED CLIENT\nNAME: " + g_clients[client_fd].username;
+
+            std::vector<uint8_t> ack_pack = create_packet_stream(0x04, ack);
+
+            broadcast(client_fd, ack_pack);
           }
         } else {
         }
@@ -311,9 +314,11 @@ int main() {
           process_client_stream(session);
 
         } else if (bytes_read == 0 || (bytes_read < 0 && (errno != EAGAIN))) {
+          std::string ack = g_clients[current_fd].username + " disconnected!";
+
           close(current_fd);
           g_clients.erase(current_fd);
-          std::string ack = g_clients[current_fd].username + " disconnected!\n";
+
           safePrint(ack);
         }
       }
