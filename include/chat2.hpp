@@ -1,3 +1,8 @@
+/**
+ * @file chat2.hpp
+ * @brief Contains functions that will be used by all participants of the chat
+ */
+
 #ifndef CHAT2_HPP
 #define CHAT2_HPP
 
@@ -9,9 +14,21 @@
 #include <string>
 #include <vector>
 
+/**
+ * @brief PORT number of the network
+ */
 constexpr int PORT = 8080;
+
+/**
+ * @brief Number of possible non-blocking events
+ */
 constexpr int MAX_EVENTS = 32;
-constexpr uint16_t PROTOCOL_KEY = 0x4354; // "CT"
+
+/**
+ * @brief unique protocol key contained in every packet header for packet
+ * authorization
+ */
+constexpr uint16_t PROTOCOL_KEY = 0x4354;
 
 /**
  * TYPES:
@@ -28,12 +45,29 @@ constexpr uint16_t PROTOCOL_KEY = 0x4354; // "CT"
  */
 
 #pragma pack(push, 1)
+/**
+ * @brief Meta data of the packet
+ * @param magic :
+ * @param version :
+ * @param type :
+ * @param sequence_id :
+ * @param payload_length :
+ * */
+
+/**
+ * @class PacketHeader
+ * @brief Meta data of the packet
+ *
+ */
 struct PacketHeader {
-  uint16_t magic;
-  uint8_t version;
-  uint8_t type;
-  uint32_t sequence_id;
-  uint32_t payload_length;
+
+  uint16_t magic;  ///< The unique protocol for the chat
+  uint8_t version; ///< The IP version
+  uint8_t
+      type; ///< unique u8 number representing the type of payload in the packet
+  uint32_t sequence_id;    ///< Sequential number assigned to all packets
+                           ///< transferred in the protocol
+  uint32_t payload_length; ///< Length of the payload
 };
 #pragma pack(pop)
 
@@ -41,6 +75,10 @@ inline WINDOW *chatBorder, *chatWin;
 inline WINDOW *inputBorder, *inputWin;
 inline int screenHeight, screenWidth;
 
+/**
+ * @brief Initilization of the Ncurses window
+ * noecho
+ */
 inline void setupNcurses() {
   initscr();
   cbreak();
@@ -86,6 +124,13 @@ inline void cleanupNcurses() {
   endwin();
 }
 
+/**
+ * @brief Convert the message payload to packet
+ * Combines the Packet header and the payload, converts it to a u8 vector
+ * @param type The type of the packet to be created
+ * @param payload Message to be packetized
+ * @return Formatted packet
+ */
 inline std::vector<uint8_t> create_packet_stream(const uint8_t &type,
                                                  const std::string &payload) {
 
@@ -108,7 +153,15 @@ inline std::vector<uint8_t> create_packet_stream(const uint8_t &type,
   return packet;
 }
 
-inline void safePrint(const std::string &msg) {
+/**
+ * @brief Simple function to display the message in the chat window
+ * Sets color to the text depending on who is sending it
+ * @param msg Message to be displayed
+ * @param italics set the message format italics, default false
+ * @param bold set the message format bold, default false
+ */
+inline void safePrint(const std::string &msg, bool italics = false,
+                      bool bold = false) {
   int color_pair = 0;
 
   if (msg.find("[SERVER]") != std::string::npos ||
@@ -123,6 +176,11 @@ inline void safePrint(const std::string &msg) {
 
   if (color_pair > 0)
     wattron(chatWin, COLOR_PAIR(color_pair));
+
+  if (italics)
+    attron(A_ITALIC);
+  else
+    attroff(A_ITALIC);
 
   wprintw(chatWin, "%s\n", msg.c_str());
 
