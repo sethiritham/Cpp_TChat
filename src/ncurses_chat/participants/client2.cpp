@@ -1,3 +1,9 @@
+/**
+ * @file client2.cpp
+ * @brief Client specific logic
+ * client authentication logic, Client main loop
+ */
+
 #include "auth.hpp"
 #include "chat2.hpp"
 #include <arpa/inet.h>
@@ -17,22 +23,59 @@
 #include <unistd.h>
 #include <vector>
 
+/**
+ * @class ClientSession
+ * @brief All the data related to the client, socket, name, input and output
+ * buffer
+ */
 struct ClientSession {
+  /**
+   * @brief Client Socket
+   */
   int fd;
+  /**
+   * @brief Username of the client
+   */
   std::string username;
+  /**
+   * @brief input buffer, data received from the server is placed here
+   */
   std::vector<uint8_t> rx_buffer;
+  /**
+   * @brief output buffer, data transmitted by the client to the server is
+   * placed here
+   */
   std::vector<uint8_t> tx_buffer;
 
+  /**
+   * @brief Default constructor, does nothing.
+   */
   ClientSession() {}
 
+  /**
+   * @brief Primary constructor of ClientSession, initializes client socket and
+   * reserves both the buffer with size 64KB.
+   *
+   * @param fd Client Socket (file descriptor)
+   */
   ClientSession(int fd) : fd(fd) {
     rx_buffer.reserve(65536);
     tx_buffer.reserve(65536);
   }
 };
 
+/**
+ * @brief Dictionary with key being the client socket and value being the
+ * session corresponding to that socket
+ */
 std::map<int, ClientSession> g_clients;
 
+/**
+ * @brief Sets a socket to non blocking
+ * @param fd File descriptor of the socket to set non blocking
+ * @return true if descriptor was successfully set to non blocking, false if
+ * system call failed
+ */
 bool set_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1)
@@ -40,6 +83,12 @@ bool set_nonblocking(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1;
 }
 
+/**
+ * @brief Handles the authentication logic for the client
+ * Handles both registration and login, a packet containing name|password is
+ * sent to the server for authentication.
+ * @return success: client fd | faliure: -1
+ */
 int client_login() {
   setupNcurses();
   nodelay(inputWin, true);
@@ -153,6 +202,11 @@ int client_login() {
   return client_fd;
 }
 
+/**
+ * @brief contains the main loop of the client, initializes the ncurses screen,
+ * client connects, read & write handling
+ * @return
+ */
 int main() {
 
   int client_fd = client_login();
