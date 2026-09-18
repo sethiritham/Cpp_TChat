@@ -1,3 +1,8 @@
+/**
+ * @file server2.cpp
+ * @brief Handles the server logic, Client input buffers, verifying client
+ */
+
 #include "auth.hpp"
 #include "chat2.hpp"
 #include <arpa/inet.h>
@@ -17,22 +22,56 @@
 #include <unistd.h>
 #include <vector>
 
+/**
+ * @class ClientSession
+ * @brief Contains all the parameters related to the client
+ */
 struct ClientSession {
+  /**
+   * @brief Client file descriptor
+   */
   int fd;
+  /**
+   * @brief username
+   */
   std::string username;
+  /**
+   * @brief Input buffer, data received from the server is stored here
+   */
   std::vector<uint8_t> rx_buffer;
+  /**
+   * @brief Output buffer, data transmitted to the server is stored here
+   */
   std::vector<uint8_t> tx_buffer;
 
+  /**
+   * @brief Default constructor, does nothing
+   */
   ClientSession() {}
 
+  /**
+   * @brief Primary constructor, initializes file descriptor, input and output
+   * buffer reserved with size 64KB
+   * @param fd Client file descriptor
+   */
   ClientSession(int fd) : fd(fd) {
     rx_buffer.reserve(65536);
     tx_buffer.reserve(65536);
   }
 };
 
+/**
+ * @brief Dictionary with key being the client socket and value being the
+ * session corresponding to that socket
+ */
 std::map<int, ClientSession> g_clients;
 
+/**
+ * @brief Sets a socket to non blocking
+ * @param fd File descriptor of the socket to set non blocking
+ * @return true if descriptor was successfully set to non blocking, false if
+ * system call failed
+ */
 bool set_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1)
@@ -40,6 +79,12 @@ bool set_nonblocking(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1;
 }
 
+/**
+ * @brief Sets a socket to blocking
+ * @param fd File descriptor of the socket to set to blocking
+ * @return true if descriptor was successfully set to blocking, false if
+ * system call failed
+ */
 bool set_blocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1)
@@ -47,6 +92,14 @@ bool set_blocking(int fd) {
   return fcntl(fd, F_SETFL, flags | ~O_NONBLOCK) != -1;
 }
 
+/**
+ * @brief Broadcast logic, server sends the packet to all clients connected to
+ * it
+ *
+ * @param sender_fd File descriptor of the participant who is transmitting the
+ * data
+ * @param packet Packet to be transmitted
+ */
 void broadcast(int sender_fd, const std::vector<uint8_t> &packet) {
   for (auto &[fd, session] : g_clients) {
     if (fd != sender_fd) {
@@ -64,6 +117,12 @@ void broadcast(int sender_fd, const std::vector<uint8_t> &packet) {
   }
 }
 
+/**
+ * @brief Processes the receive buffer of the client session and broadcasts it
+ * after packetizing it
+ *
+ * @param session session from whom server received the data
+ */
 void process_client_stream(ClientSession &session) {
   while (session.rx_buffer.size() >= sizeof(PacketHeader)) {
     PacketHeader header;
@@ -103,6 +162,12 @@ void process_client_stream(ClientSession &session) {
   }
 }
 
+/**
+ * @brief Client authentication is handled here, after authentication, client
+ * session is initialized
+ * @param fd File descriptor of the client
+ * @return 0 if successfull, -1 for faliure
+ */
 int handle_client(int fd) {
   set_blocking(fd);
   struct timeval tv{.tv_sec = 3, .tv_usec = 0};
@@ -200,8 +265,7 @@ int main() {
   listen(server_fd, SOMAXCONN);
 
   setupNcurses();
-  safePrint("Server started on port 8080");
-  safePrint("Waiting for clients to join");
+  safePrint("Waiting for clients to join", true);
 
   set_nonblocking(server_fd);
   set_nonblocking(STDIN_FILENO);
@@ -214,7 +278,7 @@ int main() {
          nullptr);
   kevent(kq, init_evs, 2, nullptr, 0, nullptr);
 
-  safePrint("[SERVER] active on PORT: 8080");
+  safePrint("[SERVER] active on PORT: 8080", true);
   std::vector<struct kevent> event_list(MAX_EVENTS);
 
   if (!create_table()) {
