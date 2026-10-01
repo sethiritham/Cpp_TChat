@@ -236,9 +236,32 @@ int handle_client(int fd) {
   packet = create_packet_stream(0x08, "OK");
   send(fd, packet.data(), packet.size(), 0);
 
+  auto broad_pack = create_packet_stream(0x04, auth_msg);
+  broadcast(fd, broad_pack);
+
   g_clients[fd] = ClientSession(fd);
   g_clients[fd].username = name;
 
+  return 0;
+}
+
+int kick_client(const std::string &username) {
+  for (auto &[fd, session] : g_clients) {
+    if (session.username == username) {
+
+      std::string kick_msg = "[SERVER] : kicked " + username;
+
+      auto kick_pkt = create_packet_stream(0x04, kick_msg);
+
+      broadcast(session.fd, kick_pkt);
+      safePrint("[SERVER]: Successfully kicked " + username, true);
+
+      close(session.fd);
+      return 1;
+    }
+  }
+
+  safePrint("{ERROR} : Client not found!");
   return 0;
 }
 
@@ -309,6 +332,22 @@ int main() {
               break;
             }
 
+            if (input_buffer.find("/kick") != std::string::npos) {
+              size_t split_pos = input_buffer.find(" ");
+
+              std::string client_username = input_buffer.substr(split_pos + 1);
+
+              kick_client(client_username);
+
+              input_buffer.clear();
+
+              werase(inputWin);
+              mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
+              wrefresh(inputWin);
+
+              continue;
+            }
+
             if (!input_buffer.empty()) {
               std::string msg = "[YOU]: " + input_buffer;
               input_buffer = "[SERVER]: " + input_buffer;
@@ -352,13 +391,6 @@ int main() {
             EV_SET(&ev, client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
                    nullptr);
             kevent(kq, &ev, 1, nullptr, 0, nullptr);
-
-            std::string ack =
-                "ACCEPTED CLIENT\nNAME: " + g_clients[client_fd].username;
-
-            std::vector<uint8_t> ack_pack = create_packet_stream(0x04, ack);
-
-            broadcast(client_fd, ack_pack);
           }
         } else {
         }
