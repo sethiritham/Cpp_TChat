@@ -203,8 +203,92 @@ int client_login() {
 }
 
 /**
- * @brief contains the main loop of the client, initializes the ncurses screen,
- * client connects, read & write handling
+ * @brief handles write event of the client
+ *
+ * @param input_buffer stores the outgoing data by the client
+ * @param client_fd client file_descriptor
+ * @return true : case client successfully writes to the buffer, false : case
+ * faliure
+ */
+bool handle_write(std::string &input_buffer, int client_fd) {
+  int ch;
+  while ((ch = wgetch(inputWin)) != ERR) {
+    if (ch == '\n' || ch == KEY_ENTER) {
+      if (input_buffer == "/quit") {
+        return false;
+      }
+
+      if (!input_buffer.empty()) {
+        safePrint("[YOU] : " + input_buffer);
+
+        input_buffer =
+            "[" + g_clients[client_fd].username + "]: " + input_buffer;
+
+        auto packet = create_packet_stream(0x01, input_buffer);
+
+        write(client_fd, packet.data(), packet.size());
+
+        input_buffer.clear();
+        werase(inputWin);
+        wrefresh(inputWin);
+      }
+    } else if (ch == KEY_BACKSPACE || ch == 127) {
+      if (!input_buffer.empty())
+        input_buffer.pop_back();
+    } else if (isprint(ch)) {
+      input_buffer.push_back(static_cast<char>(ch));
+    }
+
+    werase(inputWin);
+    mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
+    wrefresh(inputWin);
+  }
+
+  return true;
+}
+
+/**
+ * @brief handles the read event for client
+ *
+ * @param client_fd file descriptor of the client
+ * @param rx_buffer stores data received from the server
+ * @return false : case read fails, true : case read succeeded
+ */
+bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
+  uint8_t buffer[1024];
+  ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer));
+
+  if (bytes_read > 0) {
+    rx_buffer.insert(rx_buffer.end(), buffer, buffer + bytes_read);
+
+    while (rx_buffer.size() >= sizeof(PacketHeader)) {
+      PacketHeader header;
+      std::memcpy(&header, rx_buffer.data(), sizeof(PacketHeader));
+      uint32_t payload_len = ntohl(header.payload_length);
+      size_t total_size = payload_len + sizeof(PacketHeader);
+
+      if (rx_buffer.size() < total_size) {
+        break;
+      }
+
+      std::string msg(rx_buffer.begin() + sizeof(PacketHeader),
+                      rx_buffer.begin() + total_size);
+
+      safePrint(msg);
+
+      rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
+    }
+  } else if (bytes_read == 0 || (bytes_read < 0 && errno != EAGAIN)) {
+    safePrint("[SERVER] : CONNECTION LOST");
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief contains the main loop of the client, initializes the ncurses
+ * screen, client connects, read & write handling
  * @return
  */
 int main() {
@@ -258,66 +342,12 @@ int main() {
       int current_fd = static_cast<int>(event_list[i].ident);
 
       if (current_fd == STDIN_FILENO) {
-        int ch;
-        while ((ch = wgetch(inputWin)) != ERR) {
-          if (ch == '\n' || ch == KEY_ENTER) {
-            if (input_buffer == "/quit") {
-              running = false;
-              break;
-            }
-
-            if (!input_buffer.empty()) {
-              safePrint("[YOU] : " + input_buffer);
-
-              input_buffer =
-                  "[" + g_clients[client_fd].username + "]: " + input_buffer;
-
-              auto packet = create_packet_stream(0x01, input_buffer);
-
-              write(client_fd, packet.data(), packet.size());
-
-              input_buffer.clear();
-              werase(inputWin);
-              wrefresh(inputWin);
-            }
-          } else if (ch == KEY_BACKSPACE || ch == 127) {
-            if (!input_buffer.empty())
-              input_buffer.pop_back();
-          } else if (isprint(ch)) {
-            input_buffer.push_back(static_cast<char>(ch));
-          }
-
-          werase(inputWin);
-          mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
-          wrefresh(inputWin);
+        if (!handle_write(input_buffer, client_fd)) {
+          running = false;
         }
       } else if (current_fd == client_fd &&
                  event_list[i].filter == EVFILT_READ) {
-        uint8_t buffer[1024];
-        ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer));
-
-        if (bytes_read > 0) {
-          rx_buffer.insert(rx_buffer.end(), buffer, buffer + bytes_read);
-
-          while (rx_buffer.size() >= sizeof(PacketHeader)) {
-            PacketHeader header;
-            std::memcpy(&header, rx_buffer.data(), sizeof(PacketHeader));
-            uint32_t payload_len = ntohl(header.payload_length);
-            size_t total_size = payload_len + sizeof(PacketHeader);
-
-            if (rx_buffer.size() < total_size) {
-              break;
-            }
-
-            std::string msg(rx_buffer.begin() + sizeof(PacketHeader),
-                            rx_buffer.begin() + total_size);
-
-            safePrint(msg);
-
-            rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
-          }
-        } else if (bytes_read == 0 || (bytes_read < 0 && errno != EAGAIN)) {
-          safePrint("[SERVER] : CONNECTION LOST");
+        if (!handle_read(client_fd, rx_buffer)) {
           running = false;
         }
       }
