@@ -265,6 +265,98 @@ int kick_client(const std::string &username) {
   return 0;
 }
 
+void handle_read(int current_fd) {
+  char buffer[1024];
+  ssize_t bytes_read = read(current_fd, buffer, sizeof(buffer) - 1);
+
+  if (bytes_read > 0) {
+    auto &session = g_clients[current_fd];
+    session.rx_buffer.insert(session.rx_buffer.end(), buffer,
+                             buffer + bytes_read);
+
+    process_client_stream(session);
+
+  } else if (bytes_read == 0 || (bytes_read < 0 && (errno != EAGAIN))) {
+    std::string ack = g_clients[current_fd].username + " disconnected!";
+
+    close(current_fd);
+    g_clients.erase(current_fd);
+
+    safePrint(ack);
+  }
+}
+
+bool handle_write(std::string &input_buffer, int server_fd) {
+  int ch;
+  while ((ch = wgetch(inputWin)) != ERR) {
+    if (ch == '\n' || ch == KEY_ENTER) {
+      if (input_buffer == "/quit") {
+        return false;
+      }
+
+      if (input_buffer.find("/kick") != std::string::npos) {
+        size_t split_pos = input_buffer.find(" ");
+
+        std::string client_username = input_buffer.substr(split_pos + 1);
+
+        kick_client(client_username);
+
+        input_buffer.clear();
+
+        werase(inputWin);
+        mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
+        wrefresh(inputWin);
+
+        continue;
+      }
+
+      if (!input_buffer.empty()) {
+        std::string msg = "[YOU]: " + input_buffer;
+        input_buffer = "[SERVER]: " + input_buffer;
+        auto packet = create_packet_stream(0x01, input_buffer);
+
+        safePrint(msg);
+        broadcast(server_fd, packet);
+
+        input_buffer.clear();
+        werase(inputWin);
+        wrefresh(inputWin);
+      }
+    } else if (ch == KEY_BACKSPACE || ch == 127) {
+      if (!input_buffer.empty())
+        input_buffer.pop_back();
+    } else if (isprint(ch)) {
+      input_buffer.push_back(static_cast<char>(ch));
+    }
+
+    werase(inputWin);
+    mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
+    wrefresh(inputWin);
+  }
+
+  return true;
+}
+
+void handle_client_connection(int server_fd, int kq) {
+  sockaddr_in client_addr;
+  socklen_t len = sizeof(client_addr);
+
+  int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &len);
+
+  if (client_fd >= 0) {
+    int auth_result = handle_client(client_fd);
+
+    if (auth_result == 0) {
+      set_nonblocking(client_fd);
+      struct kevent ev;
+
+      EV_SET(&ev, client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+      kevent(kq, &ev, 1, nullptr, 0, nullptr);
+    }
+  } else {
+  }
+}
+
 int main() {
   signal(SIGPIPE, SIG_IGN);
 
@@ -324,99 +416,16 @@ int main() {
       int current_fd = static_cast<int>(event_list[i].ident);
 
       if (current_fd == STDIN_FILENO) {
-        int ch;
-        while ((ch = wgetch(inputWin)) != ERR) {
-          if (ch == '\n' || ch == KEY_ENTER) {
-            if (input_buffer == "/quit") {
-              running = false;
-              break;
-            }
-
-            if (input_buffer.find("/kick") != std::string::npos) {
-              size_t split_pos = input_buffer.find(" ");
-
-              std::string client_username = input_buffer.substr(split_pos + 1);
-
-              kick_client(client_username);
-
-              input_buffer.clear();
-
-              werase(inputWin);
-              mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
-              wrefresh(inputWin);
-
-              continue;
-            }
-
-            if (!input_buffer.empty()) {
-              std::string msg = "[YOU]: " + input_buffer;
-              input_buffer = "[SERVER]: " + input_buffer;
-              auto packet = create_packet_stream(0x01, input_buffer);
-
-              safePrint(msg);
-              broadcast(server_fd, packet);
-
-              input_buffer.clear();
-              werase(inputWin);
-              wrefresh(inputWin);
-            }
-          } else if (ch == KEY_BACKSPACE || ch == 127) {
-            if (!input_buffer.empty())
-              input_buffer.pop_back();
-          } else if (isprint(ch)) {
-            input_buffer.push_back(static_cast<char>(ch));
-          }
-
-          werase(inputWin);
-          mvwprintw(inputWin, 0, 0, "%s", input_buffer.c_str());
-          wrefresh(inputWin);
-        }
-
+        if (!handle_write(input_buffer, server_fd))
+          running = false;
       }
 
       else if (current_fd == server_fd) {
-        sockaddr_in client_addr;
-        socklen_t len = sizeof(client_addr);
-
-        int client_fd =
-            accept(server_fd, (struct sockaddr *)&client_addr, &len);
-
-        if (client_fd >= 0) {
-          int auth_result = handle_client(client_fd);
-
-          if (auth_result == 0) {
-            set_nonblocking(client_fd);
-            struct kevent ev;
-
-            EV_SET(&ev, client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
-                   nullptr);
-            kevent(kq, &ev, 1, nullptr, 0, nullptr);
-          }
-        } else {
-        }
-
-        continue;
+        handle_client_connection(server_fd, kq);
       }
 
       else if (event_list[i].filter == EVFILT_READ) {
-        char buffer[1024];
-        ssize_t bytes_read = read(current_fd, buffer, sizeof(buffer) - 1);
-
-        if (bytes_read > 0) {
-          auto &session = g_clients[current_fd];
-          session.rx_buffer.insert(session.rx_buffer.end(), buffer,
-                                   buffer + bytes_read);
-
-          process_client_stream(session);
-
-        } else if (bytes_read == 0 || (bytes_read < 0 && (errno != EAGAIN))) {
-          std::string ack = g_clients[current_fd].username + " disconnected!";
-
-          close(current_fd);
-          g_clients.erase(current_fd);
-
-          safePrint(ack);
-        }
+        handle_read(current_fd);
       }
     }
   }
