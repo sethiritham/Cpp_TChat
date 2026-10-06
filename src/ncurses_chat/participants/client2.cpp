@@ -1,5 +1,4 @@
-/**
- * @file client2.cpp
+/** @file client2.cpp
  * @brief Client specific logic
  * client authentication logic, Client main loop
  */
@@ -17,6 +16,8 @@
 #include <fcntl.h>
 #include <map>
 #include <netinet/in.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -33,6 +34,8 @@ struct ClientSession {
    * @brief Client Socket
    */
   int fd;
+
+  SSL *ssl = nullptr;
   /**
    * @brief Username of the client
    */
@@ -58,7 +61,7 @@ struct ClientSession {
    *
    * @param fd Client Socket (file descriptor)
    */
-  ClientSession(int fd) : fd(fd) {
+  ClientSession(int fd, SSL *ssl) : fd(fd), ssl(ssl) {
     rx_buffer.reserve(65536);
     tx_buffer.reserve(65536);
   }
@@ -89,7 +92,7 @@ bool set_nonblocking(int fd) {
  * sent to the server for authentication.
  * @return success: client fd | faliure: -1
  */
-int client_login() {
+int client_login(SSL_CTX *ssl_ctx) {
   setupNcurses();
   nodelay(inputWin, true);
 
@@ -124,6 +127,7 @@ int client_login() {
   ClientSession session;
 
   int client_fd = socket(AF_INET, SOCK_STREAM, 0);
+
   session.fd = client_fd;
   g_clients[client_fd] = session;
 
@@ -159,21 +163,34 @@ int client_login() {
     return false;
   }
 
+  SSL *ssl = SSL_new(ssl_ctx);
+  SSL_set_fd(ssl, client_fd);
+
+  if (SSL_connect(ssl) <= 0) {
+    std::cerr << "[TLS ERROR] Handshake failed on fd " << client_fd
+              << std::endl;
+    ERR_print_errors_fp(stderr);
+    SSL_free(ssl);
+    close(client_fd);
+    return -1;
+  }
+
   auto auth_packet = create_packet_stream(pkt_type, creds);
-  send(client_fd, auth_packet.data(), auth_packet.size(), 0);
+  SSL_write(ssl, auth_packet.data(), auth_packet.size());
 
   clear();
   move(0, 0);
   refresh();
 
   uint8_t response_buffer[256];
-  ssize_t bytes_read =
-      read(client_fd, response_buffer, sizeof(response_buffer));
+  ssize_t bytes_read = SSL_read(ssl, response_buffer, sizeof(response_buffer));
 
   if (bytes_read < static_cast<ssize_t>(sizeof(PacketHeader))) {
     cleanupNcurses();
     std::cerr << "Authentication failed: Server closed connection or sent no "
                  "response.\n";
+
+    SSL_shutdown(ssl);
     close(client_fd);
     return -1;
   }
@@ -191,15 +208,35 @@ int client_login() {
     cleanupNcurses();
     std::cerr << "Authentication / Registration failed: Server returned '"
               << ack_msg << "'\n";
+
+    SSL_shutdown(ssl);
     close(client_fd);
     return -1;
   }
+
+  g_clients[client_fd].ssl = ssl;
 
   clear();
   refresh();
   endwin();
 
   return client_fd;
+}
+
+SSL_CTX *init_client_ssl_context() {
+
+  SSL_library_init();
+  OpenSSL_add_all_algorithms();
+  SSL_load_error_strings();
+
+  const SSL_METHOD *method = TLS_client_method();
+  SSL_CTX *ctx = SSL_CTX_new(method);
+
+  if (!ctx) {
+    ERR_print_errors_fp(stderr);
+    exit(EXIT_FAILURE);
+  }
+  return ctx;
 }
 
 /**
@@ -226,7 +263,7 @@ bool handle_write(std::string &input_buffer, int client_fd) {
 
         auto packet = create_packet_stream(0x01, input_buffer);
 
-        write(client_fd, packet.data(), packet.size());
+        SSL_write(g_clients[client_fd].ssl, packet.data(), packet.size());
 
         input_buffer.clear();
         werase(inputWin);
@@ -256,7 +293,8 @@ bool handle_write(std::string &input_buffer, int client_fd) {
  */
 bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
   uint8_t buffer[1024];
-  ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer));
+  ssize_t bytes_read =
+      SSL_read(g_clients[client_fd].ssl, buffer, sizeof(buffer));
 
   if (bytes_read > 0) {
     rx_buffer.insert(rx_buffer.end(), buffer, buffer + bytes_read);
@@ -278,7 +316,11 @@ bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
 
       rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
     }
-  } else if (bytes_read == 0 || (bytes_read < 0 && errno != EAGAIN)) {
+  } else {
+    int ssl_err = SSL_get_error(g_clients[client_fd].ssl, bytes_read);
+    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+      return true;
+    }
     safePrint("[SERVER] : CONNECTION LOST");
     return false;
   }
@@ -293,7 +335,8 @@ bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
  */
 int main() {
 
-  int client_fd = client_login();
+  SSL_CTX *ssl_ctx = init_client_ssl_context();
+  int client_fd = client_login(ssl_ctx);
 
   setupNcurses();
 
