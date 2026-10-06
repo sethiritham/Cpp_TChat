@@ -7,12 +7,17 @@
 - Hosts the port (8080 by default), Invites connections via LAN  
 - Creates the room
 - Accepts Client Connections
-- All functions are thread locked
+- Functions are Non-blocking
 
 ### Client
 
 - Joins a given room hosted on a given IP (local host by default)
 - Reads and writes messages
+- Functions are Non-blocking
+
+## Encryption
+
+- Server and Client sockets are encrypted via TLS
 
 ## Authentication
 
@@ -68,16 +73,14 @@
   - Client enters the wrong server IP
     - Program ends after displaying an error message stating *Invalid IP*
   - Client does not exist in the database
-    - Server sends an ack stating the absence of the client
   - Client enters the wrong password
-    - Server sends an ack exclaiming the incorrect password
 
 Client is not authenticated:
-Server will send a failure packet to the client (invalid credentials)
+  Server sends a negative AUTH packet  
 
 ## Connections
 
-- Client connects to the room via LAN
+- Clients connect to the network
 
 ### Success
 
@@ -168,11 +171,6 @@ of the client from where the packet was transmitted
     - File data
   - MSG - (0x02)
     - Normal text message
-  - CMND - (0x03)
-    - Pre defined chat-commands
-    - COMMANDS:
-      - ```\quit``` (Server & Client) : Participant quits the program
-      - ```\kick [CLIENT NAME]``` (Server) : Kicks the given client from the program/chat
   - ACK - (0x04)
     - Acknowledgement packet
   - PRESENCE - (0x05)
@@ -255,10 +253,25 @@ together in the chat window
 
 ## File Transfer
 
-Current transferable file formats:
+### IMAGE Transfer
 
-- PNG
-- Text
+- PNG transfer
+
+#### PROCESS
+
+##### SENDER SIDE
+
+- Read the PNG File
+- Parse the RGBA
+- Downscale to Char Dimensions (2 : 1)
+- Split Image buffer into Chunks (Sequenced)
+- Send chunk packets over TLS
+
+##### RECEIVER SIDE
+
+- Receives the Chunk packets in-order
+- Buffer created by sequencing the chunk
+- Image displayed on the chat window
 
 Flags
 
