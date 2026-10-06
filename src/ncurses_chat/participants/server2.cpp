@@ -15,6 +15,8 @@
 #include <iostream>
 #include <map>
 #include <netinet/in.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <ostream>
 #include <string>
 #include <sys/event.h>
@@ -31,6 +33,12 @@ struct ClientSession {
    * @brief Client file descriptor
    */
   int fd;
+
+  /**
+   * @brief SSL instance
+   */
+  SSL *ssl = nullptr;
+
   /**
    * @brief username
    */
@@ -54,7 +62,7 @@ struct ClientSession {
    * buffer reserved with size 64KB
    * @param fd Client file descriptor
    */
-  ClientSession(int fd) : fd(fd) {
+  ClientSession(int fd, SSL *ssl) : fd(fd), ssl(ssl) {
     rx_buffer.reserve(65536);
     tx_buffer.reserve(65536);
   }
@@ -89,7 +97,38 @@ bool set_blocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1)
     return false;
-  return fcntl(fd, F_SETFL, flags | ~O_NONBLOCK) != -1;
+  return fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) != -1;
+}
+
+SSL_CTX *init_server_ssl_context() {
+  SSL_library_init();
+  OpenSSL_add_all_algorithms();
+  SSL_load_error_strings();
+
+  const SSL_METHOD *method = TLS_server_method();
+  SSL_CTX *ctx = SSL_CTX_new(method);
+
+  if (!ctx) {
+    ERR_print_errors_fp(stderr);
+    exit(EXIT_FAILURE);
+  }
+
+  if (SSL_CTX_use_certificate_file(ctx, "server.crt", SSL_FILETYPE_PEM) <= 0) {
+    ERR_print_errors_fp(stderr);
+    exit(EXIT_FAILURE);
+  }
+
+  if (SSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM) <= 0) {
+    ERR_print_errors_fp(stderr);
+    exit(EXIT_FAILURE);
+  }
+
+  if (!SSL_CTX_check_private_key(ctx)) {
+    std::cerr << "Private key does not match public certificate\n";
+    exit(EXIT_FAILURE);
+  }
+
+  return ctx;
 }
 
 /**
@@ -103,11 +142,12 @@ bool set_blocking(int fd) {
 void broadcast(int sender_fd, const std::vector<uint8_t> &packet) {
   for (auto &[fd, session] : g_clients) {
     if (fd != sender_fd) {
+
       session.tx_buffer.insert(session.tx_buffer.end(), packet.begin(),
                                packet.end());
 
-      ssize_t sent =
-          write(fd, session.tx_buffer.data(), session.tx_buffer.size());
+      ssize_t sent = SSL_write(g_clients[fd].ssl, session.tx_buffer.data(),
+                               session.tx_buffer.size());
 
       if (sent > 0) {
         session.tx_buffer.erase(session.tx_buffer.begin(),
@@ -168,18 +208,36 @@ void process_client_stream(ClientSession &session) {
  * @param fd File descriptor of the client
  * @return 0 if successfull, -1 for faliure
  */
-int handle_client(int fd) {
+int handle_client(int fd, SSL_CTX *ssl_ctx) {
   set_blocking(fd);
+
+  SSL *ssl = SSL_new(ssl_ctx);
+  SSL_set_fd(ssl, fd);
+
+  if (SSL_accept(ssl) <= 0) {
+    std::cerr << "[TLS ERROR] Handshake failed on fd " << fd << std::endl;
+    ERR_print_errors_fp(stderr);
+    SSL_free(ssl);
+    close(fd);
+    return -1;
+  }
+
+  g_clients[fd] = ClientSession(fd, ssl);
+
+  safePrint("[TLS SUCCESS] Encrypted connection established on fd ");
+
   struct timeval tv{.tv_sec = 3, .tv_usec = 0};
   setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
   char buffer[512];
 
-  ssize_t bytes_read = read(fd, buffer, sizeof(buffer));
+  ssize_t bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
 
-  if (bytes_read < static_cast<ssize_t>(sizeof(PacketHeader))) {
-    std::string err_msg = "DID NOT RECIEVE AUTH PACKET\n";
-    safePrint(err_msg);
+  if (bytes_read < static_cast<int>(sizeof(PacketHeader))) {
+    std::cerr << "[AUTH ERROR] Invalid packet over TLS stream." << std::endl;
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+    close(fd);
     return -1;
   }
 
@@ -217,14 +275,20 @@ int handle_client(int fd) {
   if (header.type == 0x09) {
     if (!(register_client(name, password))) {
       packet = create_packet_stream(0x09, "NO");
-      send(fd, packet.data(), packet.size(), 0);
+      SSL_write(ssl, packet.data(), packet.size());
+
+      SSL_shutdown(ssl);
+      SSL_free(ssl);
       close(fd);
       return -1;
     }
   } else if (header.type == 0x08) {
     if (!verify_user(name, password)) {
       packet = create_packet_stream(0x08, "NO");
-      send(fd, packet.data(), packet.size(), 0);
+      SSL_write(ssl, packet.data(), packet.size());
+
+      SSL_shutdown(ssl);
+      SSL_free(ssl);
       close(fd);
       return -1;
     }
@@ -234,13 +298,12 @@ int handle_client(int fd) {
   safePrint(auth_msg);
 
   packet = create_packet_stream(0x08, "OK");
-  send(fd, packet.data(), packet.size(), 0);
+  SSL_write(ssl, packet.data(), packet.size());
+
+  g_clients[fd].username = name;
 
   auto broad_pack = create_packet_stream(0x04, auth_msg);
   broadcast(fd, broad_pack);
-
-  g_clients[fd] = ClientSession(fd);
-  g_clients[fd].username = name;
 
   return 0;
 }
@@ -256,6 +319,8 @@ int kick_client(const std::string &username) {
       broadcast(session.fd, kick_pkt);
       safePrint("[SERVER]: Successfully kicked " + username, true);
 
+      SSL_shutdown(session.ssl);
+      SSL_free(session.ssl);
       close(session.fd);
       return 1;
     }
@@ -266,8 +331,10 @@ int kick_client(const std::string &username) {
 }
 
 void handle_read(int current_fd) {
+
+  SSL *ssl = g_clients[current_fd].ssl;
   char buffer[1024];
-  ssize_t bytes_read = read(current_fd, buffer, sizeof(buffer) - 1);
+  ssize_t bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
 
   if (bytes_read > 0) {
     auto &session = g_clients[current_fd];
@@ -279,6 +346,8 @@ void handle_read(int current_fd) {
   } else if (bytes_read == 0 || (bytes_read < 0 && (errno != EAGAIN))) {
     std::string ack = g_clients[current_fd].username + " disconnected!";
 
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
     close(current_fd);
     g_clients.erase(current_fd);
 
@@ -337,14 +406,14 @@ bool handle_write(std::string &input_buffer, int server_fd) {
   return true;
 }
 
-void handle_client_connection(int server_fd, int kq) {
+void handle_client_connection(int server_fd, SSL_CTX *ssl_ctx, int kq) {
   sockaddr_in client_addr;
   socklen_t len = sizeof(client_addr);
 
   int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &len);
 
   if (client_fd >= 0) {
-    int auth_result = handle_client(client_fd);
+    int auth_result = handle_client(client_fd, ssl_ctx);
 
     if (auth_result == 0) {
       set_nonblocking(client_fd);
@@ -378,6 +447,8 @@ int main() {
   }
 
   listen(server_fd, SOMAXCONN);
+
+  SSL_CTX *ssl_ctx = init_server_ssl_context();
 
   setupNcurses();
   safePrint("Waiting for clients to join", true);
@@ -421,7 +492,7 @@ int main() {
       }
 
       else if (current_fd == server_fd) {
-        handle_client_connection(server_fd, kq);
+        handle_client_connection(server_fd, ssl_ctx, kq);
       }
 
       else if (event_list[i].filter == EVFILT_READ) {
