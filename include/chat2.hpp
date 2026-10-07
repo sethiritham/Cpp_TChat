@@ -71,6 +71,21 @@ struct PacketHeader {
 };
 #pragma pack(pop)
 
+struct FileMetaData {
+  uint32_t transfer_id;
+  uint16_t total_chunks;
+  uint16_t width;
+  uint16_t height;
+  char filename[64];
+};
+
+struct FileChunk {
+  uint32_t transfer_id;
+  uint16_t chunk_index;
+  uint16_t payload_size;
+  uint8_t data[1024];
+};
+
 inline WINDOW *chatBorder, *chatWin;
 inline WINDOW *inputBorder, *inputWin;
 inline int screenHeight, screenWidth;
@@ -178,14 +193,21 @@ inline void safePrint(const std::string &msg, bool italics = false,
     wattron(chatWin, COLOR_PAIR(color_pair));
 
   if (italics)
-    attron(A_ITALIC);
-  else
-    attroff(A_ITALIC);
+    wattron(chatWin, A_ITALIC);
+
+  if (bold)
+    wattron(chatWin, A_BOLD);
 
   wprintw(chatWin, "%s\n", msg.c_str());
 
   if (color_pair > 0)
     wattroff(chatWin, COLOR_PAIR(color_pair));
+
+  if (italics)
+    wattroff(chatWin, A_ITALIC);
+
+  if (bold)
+    wattroff(chatWin, A_BOLD);
 
   wrefresh(chatWin);
   wrefresh(inputWin);
