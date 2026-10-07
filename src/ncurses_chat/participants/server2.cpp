@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <iostream>
 #include <map>
@@ -23,6 +24,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
+
+#define SERVER_TIMER_IDENT 888
 
 /**
  * @class ClientSession
@@ -38,6 +41,8 @@ struct ClientSession {
    * @brief SSL instance
    */
   SSL *ssl = nullptr;
+
+  time_t last_seen = time(nullptr);
 
   /**
    * @brief username
@@ -164,6 +169,9 @@ void broadcast(int sender_fd, const std::vector<uint8_t> &packet) {
  * @param session session from whom server received the data
  */
 void process_client_stream(ClientSession &session) {
+
+  session.last_seen = time(nullptr);
+
   while (session.rx_buffer.size() >= sizeof(PacketHeader)) {
     PacketHeader header;
 
@@ -184,6 +192,16 @@ void process_client_stream(ClientSession &session) {
       std::string err_msg = "[INCOMPLETE PACKET]\n";
       safePrint(err_msg);
       break;
+    }
+
+    if (header.type == 0x07) {
+      auto pong_packet = create_packet_stream(0x06, "");
+      SSL_write(session.ssl, pong_packet.data(), pong_packet.size());
+
+      session.rx_buffer.erase(session.rx_buffer.begin(),
+                              session.rx_buffer.begin() + total_size);
+
+      continue;
     }
 
     std::vector<uint8_t> complete_packet(
@@ -426,6 +444,31 @@ void handle_client_connection(int server_fd, SSL_CTX *ssl_ctx, int kq) {
   }
 }
 
+void check_client_timeout() {
+  time_t now = time(nullptr);
+  for (auto it = g_clients.begin(); it != g_clients.end();) {
+    if (now - it->second.last_seen > 10) { // 10-second silent timeout
+      std::cout << "[SERVER] Client " << it->second.username << " (fd "
+                << it->first << ") timed out. Pruning." << std::endl;
+
+      std::string leave_msg =
+          "[SERVER] : " + it->second.username + " timed out.";
+      auto leave_pkt = create_packet_stream(0x03, leave_msg);
+
+      SSL_shutdown(it->second.ssl);
+      SSL_free(it->second.ssl);
+      close(it->first);
+
+      int dead_fd = it->first;
+      it = g_clients.erase(it);
+
+      broadcast(dead_fd, leave_pkt);
+    } else {
+      ++it;
+    }
+  }
+}
+
 int main() {
   signal(SIGPIPE, SIG_IGN);
 
@@ -458,11 +501,17 @@ int main() {
 
   int kq = kqueue();
   struct kevent init_evs[2];
+  struct kevent timer_ev;
+
   EV_SET(&init_evs[0], server_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
          nullptr);
   EV_SET(&init_evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
          nullptr);
   kevent(kq, init_evs, 2, nullptr, 0, nullptr);
+
+  EV_SET(&timer_ev, SERVER_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
+         NOTE_NSECONDS, 5000, nullptr);
+  kevent(kq, &timer_ev, 1, nullptr, 0, nullptr);
 
   safePrint("[SERVER] active on PORT: 8080", true);
   std::vector<struct kevent> event_list(MAX_EVENTS);
@@ -485,6 +534,11 @@ int main() {
 
     for (int i = 0; i < nevents; ++i) {
       int current_fd = static_cast<int>(event_list[i].ident);
+
+      if (event_list[i].filter == EVFILT_TIMER &&
+          current_fd == SERVER_TIMER_IDENT) {
+        check_client_timeout();
+      }
 
       if (current_fd == STDIN_FILENO) {
         if (!handle_write(input_buffer, server_fd))

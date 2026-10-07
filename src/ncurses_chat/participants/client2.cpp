@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <map>
 #include <netinet/in.h>
@@ -23,6 +24,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
+
+#define CLIENT_TIMER_IDENT 999
+static time_t g_last_server_activity = time(nullptr);
 
 /**
  * @class ClientSession
@@ -36,6 +40,8 @@ struct ClientSession {
   int fd;
 
   SSL *ssl = nullptr;
+
+  time_t last_seen = time(nullptr);
   /**
    * @brief Username of the client
    */
@@ -297,6 +303,7 @@ bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
       SSL_read(g_clients[client_fd].ssl, buffer, sizeof(buffer));
 
   if (bytes_read > 0) {
+    g_last_server_activity = time(nullptr);
     rx_buffer.insert(rx_buffer.end(), buffer, buffer + bytes_read);
 
     while (rx_buffer.size() >= sizeof(PacketHeader)) {
@@ -307,6 +314,11 @@ bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
 
       if (rx_buffer.size() < total_size) {
         break;
+      }
+
+      if (header.type == 0x06) {
+        rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
+        continue;
       }
 
       std::string msg(rx_buffer.begin() + sizeof(PacketHeader),
@@ -322,6 +334,22 @@ bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
       return true;
     }
     safePrint("[SERVER] : CONNECTION LOST");
+    return false;
+  }
+
+  return true;
+}
+
+bool check_client_timeout(int client_fd) {
+  time_t now = time(nullptr);
+
+  // 1. Send PING to server over TLS
+  auto ping_pkt = create_packet_stream(0x07, "");
+  SSL_write(g_clients[client_fd].ssl, ping_pkt.data(), ping_pkt.size());
+
+  // 2. Detect missing PONGs (9-second threshold)
+  if (now - g_last_server_activity > 9) {
+    safePrint("[SERVER] Connection lost (Heartbeat timeout). Exiting...", true);
     return false;
   }
 
@@ -352,10 +380,12 @@ int main() {
 
   int kq = kqueue();
 
-  struct kevent evs[2];
+  struct kevent evs[3];
 
   EV_SET(&evs[0], client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
   EV_SET(&evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+  EV_SET(&evs[2], CLIENT_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
+         NOTE_NSECONDS, 3000, nullptr);
 
   int kevent_error = 0;
   kevent_error = kevent(kq, evs, 2, nullptr, 0, nullptr);
@@ -383,6 +413,13 @@ int main() {
 
     for (int i = 0; i < nevents; ++i) {
       int current_fd = static_cast<int>(event_list[i].ident);
+
+      if (event_list[i].filter == EVFILT_TIMER &&
+          current_fd == CLIENT_TIMER_IDENT) {
+        if (!check_client_timeout(client_fd)) {
+          running = false;
+        }
+      }
 
       if (current_fd == STDIN_FILENO) {
         if (!handle_write(input_buffer, client_fd)) {
