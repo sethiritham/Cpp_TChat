@@ -19,6 +19,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <ostream>
+#include <random>
 #include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -51,6 +52,7 @@ struct ClientSession {
   /**
    * @brief Input buffer, data received from the server is stored here
    */
+  std::string token;
   std::vector<uint8_t> rx_buffer;
   /**
    * @brief Output buffer, data transmitted to the server is stored here
@@ -160,6 +162,24 @@ void broadcast(int sender_fd, const std::vector<uint8_t> &packet) {
       }
     }
   }
+}
+
+std::string generate_token() {
+  const std::string characters =
+      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+  int length = 8;
+
+  std::random_device rd;
+  std::mt19937 generator(rd());
+  std::uniform_int_distribution<> distribution(0, characters.size() - 1);
+
+  std::string random_string;
+  for (size_t i = 0; i < length; ++i) {
+    random_string += characters[distribution(generator)];
+  }
+
+  return random_string;
 }
 
 /**
@@ -285,6 +305,42 @@ int handle_client(int fd, SSL_CTX *ssl_ctx) {
     return -1;
   }
 
+  if (header.type == 0x0A) {
+    int delim_pos = message.find("|");
+    std::string name = message.substr(0, delim_pos);
+    std::string token = message.substr(delim_pos + 1);
+
+    int existing_fd = -1;
+    for (auto &[fd, session] : g_clients) {
+      if (session.username == name && session.token == token) {
+        existing_fd = fd;
+        break;
+      }
+    }
+
+    if (existing_fd != -1) {
+      std::cout << "[RECONNECT SUCCESS] Re-bound " << name << " to fd " << fd
+                << std::endl;
+
+      if (g_clients[existing_fd].ssl) {
+        SSL_shutdown(g_clients[existing_fd].ssl);
+        SSL_free(g_clients[existing_fd].ssl);
+      }
+
+      close(existing_fd);
+
+      g_clients[fd] = ClientSession(fd, ssl);
+      g_clients[fd].username = name;
+      g_clients[fd].token = token;
+
+      auto ack_pkt = create_packet_stream(0x0A, "OK");
+      SSL_write(ssl, ack_pkt.data(), ack_pkt.size());
+      return 0;
+    }
+
+    return -1;
+  }
+
   std::string name = message.substr(0, message.find("|"));
   std::string password = message.substr(message.find("|") + 1);
 
@@ -311,14 +367,15 @@ int handle_client(int fd, SSL_CTX *ssl_ctx) {
       return -1;
     }
   }
-
   std::string auth_msg = "[AUTH SUCCESS] : " + name + " joined the chat";
   safePrint(auth_msg);
 
-  packet = create_packet_stream(0x08, "OK");
+  std::string session_token = generate_token();
+  packet = create_packet_stream(0x08, "OK|" + session_token);
   SSL_write(ssl, packet.data(), packet.size());
 
   g_clients[fd].username = name;
+  g_clients[fd].token = session_token;
 
   auto broad_pack = create_packet_stream(0x04, auth_msg);
   broadcast(fd, broad_pack);
@@ -355,13 +412,18 @@ void handle_read(int current_fd) {
   ssize_t bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
 
   if (bytes_read > 0) {
+
     auto &session = g_clients[current_fd];
     session.rx_buffer.insert(session.rx_buffer.end(), buffer,
                              buffer + bytes_read);
 
     process_client_stream(session);
 
-  } else if (bytes_read == 0 || (bytes_read < 0 && (errno != EAGAIN))) {
+  } else {
+    int ssl_err = SSL_get_error(ssl, bytes_read);
+    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+      return;
+    }
     std::string ack = g_clients[current_fd].username + " disconnected!";
 
     SSL_shutdown(ssl);
@@ -510,7 +572,7 @@ int main() {
   kevent(kq, init_evs, 2, nullptr, 0, nullptr);
 
   EV_SET(&timer_ev, SERVER_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
-         NOTE_NSECONDS, 5000, nullptr);
+         NOTE_SECONDS, 5, nullptr);
   kevent(kq, &timer_ev, 1, nullptr, 0, nullptr);
 
   safePrint("[SERVER] active on PORT: 8080", true);
