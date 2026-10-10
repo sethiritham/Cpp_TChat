@@ -42,6 +42,9 @@ struct ClientSession {
   SSL *ssl = nullptr;
 
   time_t last_seen = time(nullptr);
+
+  int num_reconnects = 0;
+
   /**
    * @brief Username of the client
    */
@@ -339,6 +342,7 @@ bool handle_read(int client_fd, std::vector<uint8_t> &rx_buffer) {
       }
 
       if (header.type == 0x06) {
+        g_last_server_activity = time(nullptr);
         rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
         continue;
       }
@@ -392,8 +396,18 @@ int attempt_reconnect(SSL_CTX *ssl_ctx, int old_fd,
   int new_fd = -1;
   SSL *new_ssl = nullptr;
   bool reconnected = false;
+  int num_reconnects = 0;
 
   while (!reconnected) {
+    ++num_reconnects;
+
+    if (num_reconnects > 6) {
+      SSL_free(g_clients[old_fd].ssl);
+      close(old_fd);
+      g_clients.erase(old_fd);
+      return -1;
+    }
+
     new_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (new_fd < 0) {
@@ -455,9 +469,58 @@ int attempt_reconnect(SSL_CTX *ssl_ctx, int old_fd,
 
   g_clients[new_fd] = ClientSession(new_fd, new_ssl);
   g_clients[new_fd].username = username;
+  g_clients[new_fd].token = token;
+
+  cleanupNcurses();
+  setupNcurses();
+  nodelay(inputWin, true);
 
   safePrint("[SYSTEM] Successfully reconnected to server!", true);
   return new_fd;
+}
+
+bool handle_connection_failure(SSL_CTX *ssl_ctx, int &client_fd, int kq) {
+  int new_fd = attempt_reconnect(ssl_ctx, client_fd, serverAddress);
+
+  if (new_fd < 0)
+    return false;
+
+  auto cleanup_new_connection = [&]() {
+    auto it = g_clients.find(new_fd);
+
+    if (it != g_clients.end()) {
+      if (it->second.ssl) {
+        SSL_free(it->second.ssl);
+      }
+
+      g_clients.erase(it);
+    }
+
+    close(new_fd);
+  };
+
+  if (!set_nonblocking(new_fd)) {
+    perror("Failed to set new socket non-blocking");
+    cleanup_new_connection();
+    return false;
+  }
+
+  struct kevent ev;
+  EV_SET(&ev, new_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+
+  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+    perror("Failed to register new socket with kqueue");
+    cleanup_new_connection();
+    return false;
+  }
+  client_fd = new_fd;
+  g_clients[client_fd].rx_buffer.clear();
+
+  safePrint("[SYSTEM] Reconnected and registered successfully.", true);
+
+  g_last_server_activity = time(nullptr);
+
+  return true;
 }
 
 /**
@@ -471,6 +534,7 @@ int main() {
   int client_fd = client_login(ssl_ctx);
 
   setupNcurses();
+  g_last_server_activity = time(nullptr);
   nodelay(inputWin, true);
 
   if (client_fd < 0) {
@@ -526,7 +590,7 @@ int main() {
         SSL_write(g_clients[client_fd].ssl, ping_pkt.data(), ping_pkt.size());
 
         if (!check_client_timeout(client_fd)) {
-          attempt_reconnect(ssl_ctx, client_fd, serverAddress);
+          running = handle_connection_failure(ssl_ctx, client_fd, kq);
         }
       }
 
@@ -537,7 +601,7 @@ int main() {
       } else if (current_fd == client_fd &&
                  event_list[i].filter == EVFILT_READ) {
         if (!handle_read(client_fd, rx_buffer)) {
-          running = false;
+          running = handle_connection_failure(ssl_ctx, client_fd, kq);
         }
       }
     }

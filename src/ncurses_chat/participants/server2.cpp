@@ -215,6 +215,7 @@ void process_client_stream(ClientSession &session) {
     }
 
     if (header.type == 0x07) {
+      safePrint("Received PING");
       auto pong_packet = create_packet_stream(0x06, "");
       SSL_write(session.ssl, pong_packet.data(), pong_packet.size());
 
@@ -306,39 +307,70 @@ int handle_client(int fd, SSL_CTX *ssl_ctx) {
   }
 
   if (header.type == 0x0A) {
-    int delim_pos = message.find("|");
-    std::string name = message.substr(0, delim_pos);
-    std::string token = message.substr(delim_pos + 1);
+    const size_t delim_pos = message.find('|');
+
+    if (delim_pos == std::string::npos) {
+      g_clients.erase(fd);
+      SSL_free(ssl);
+      close(fd);
+      return -1;
+    }
+
+    const std::string name = message.substr(0, delim_pos);
+    const std::string token = message.substr(delim_pos + 1);
 
     int existing_fd = -1;
-    for (auto &[fd, session] : g_clients) {
-      if (session.username == name && session.token == token) {
-        existing_fd = fd;
+
+    for (const auto &[candidate_fd, session] : g_clients) {
+      if (candidate_fd != fd && session.username == name &&
+          session.token == token) {
+        existing_fd = candidate_fd;
         break;
       }
     }
 
-    if (existing_fd != -1) {
-      std::cout << "[RECONNECT SUCCESS] Re-bound " << name << " to fd " << fd
-                << std::endl;
+    if (existing_fd == -1) {
+      g_clients.erase(fd);
+      SSL_free(ssl);
+      close(fd);
+      return -1;
+    }
 
-      if (g_clients[existing_fd].ssl) {
-        SSL_shutdown(g_clients[existing_fd].ssl);
-        SSL_free(g_clients[existing_fd].ssl);
+    std::cout << "[RECONNECT SUCCESS] Rebinding " << name << " to fd " << fd
+              << '\n';
+
+    auto old_it = g_clients.find(existing_fd);
+
+    if (old_it != g_clients.end()) {
+      SSL *old_ssl = old_it->second.ssl;
+      old_it->second.ssl = nullptr;
+
+      g_clients.erase(old_it);
+
+      if (old_ssl) {
+        SSL_free(old_ssl);
       }
 
       close(existing_fd);
-
-      g_clients[fd] = ClientSession(fd, ssl);
-      g_clients[fd].username = name;
-      g_clients[fd].token = token;
-
-      auto ack_pkt = create_packet_stream(0x0A, "OK");
-      SSL_write(ssl, ack_pkt.data(), ack_pkt.size());
-      return 0;
     }
 
-    return -1;
+    g_clients[fd] = ClientSession(fd, ssl);
+    g_clients[fd].username = name;
+    g_clients[fd].token = token;
+    g_clients[fd].last_seen = time(nullptr);
+
+    auto ack_pkt = create_packet_stream(0x0A, "OK");
+
+    int ret = SSL_write(ssl, ack_pkt.data(), static_cast<int>(ack_pkt.size()));
+
+    if (ret <= 0) {
+      g_clients.erase(fd);
+      SSL_free(ssl);
+      close(fd);
+      return -1;
+    }
+
+    return 0;
   }
 
   std::string name = message.substr(0, message.find("|"));
