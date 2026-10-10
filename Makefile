@@ -1,6 +1,6 @@
 CXX := g++
-CXXFLAGS := -std=c++17 -Iinclude
-LDFLAGS := -lncurses -lsqlite3
+CXXFLAGS += -std=c++17 -Iinclude -I/opt/homebrew/opt/openssl@3/include
+LDFLAGS += -L/opt/homebrew/opt/openssl@3/lib -lncurses -lsqlite3 -lssl -lcrypto
 
 SERVER := server
 CLIENT := client

@@ -78,7 +78,7 @@
 Client is not authenticated:
   Server sends a negative AUTH packet  
 
-## Connections
+## Connections & Reconnections
 
 - Clients connect to the network
 

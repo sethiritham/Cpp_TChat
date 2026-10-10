@@ -44,6 +44,17 @@ constexpr uint16_t PROTOCOL_KEY = 0x4354;
  * - RGSTR = 0x09
  */
 
+#define FILE_META 0x00
+#define FILE_CHUNK 0x01
+#define MESSAGE 0x02
+#define CMND 0x03
+#define ACK 0x04
+#define PRESENCE 0x05
+#define POLL 0x06
+#define PING 0x07
+#define AUTH 0x08
+#define RGSTR 0x09
+
 #pragma pack(push, 1)
 /**
  * @brief Meta data of the packet
