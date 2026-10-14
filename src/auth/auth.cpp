@@ -20,7 +20,7 @@ int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
 bool create_table() {
   sqlite3 *DB;
 
-  int exit = sqlite3_open("user_pass.db", &DB);
+  int exit = sqlite3_open("database/user_pass.db", &DB);
   if (exit != SQLITE_OK) {
     std::cout << "UNABLE TO OPEN DATABASE" << std::endl;
     return -1;

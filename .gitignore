@@ -1,10 +1,10 @@
 .vscode/
+build/
+database/
 *.json
 *.o
-server
 kqueue_example.cpp
 server.crt
 server.key
-client
 *.db
 
