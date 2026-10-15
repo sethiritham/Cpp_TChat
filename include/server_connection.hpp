@@ -21,6 +21,8 @@
 
 enum class SessionState { Connected, Reconnected, Kicked, Expired };
 
+enum class WriteWait { Read, Write, None };
+
 struct ClientConnection {
   int fd;
   SSL *ssl;
@@ -48,6 +50,27 @@ class ClientManager {
 private:
   std::map<int, ClientConnection> connections_;
   std::map<std::string, ClientSession> sessions_;
+
+private:
+  void enable_write_event(int kq, int fd) {
+    struct kevent ev;
+
+    EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+
+    if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+      perror("Failed to enable write event");
+    }
+  }
+
+  void disable_write_event(int kq, int fd) {
+    struct kevent ev;
+
+    EV_SET(&ev, fd, EVFILT_WRITE, EV_DISABLE, 0, 0, nullptr);
+
+    if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+      perror("Failed to disable write event");
+    }
+  }
 
 public:
   bool kick(const std::string &username);

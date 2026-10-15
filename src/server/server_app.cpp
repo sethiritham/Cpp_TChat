@@ -69,6 +69,16 @@ private:
     return ctx;
   }
 
+  void enable_write_event(int kq, int fd) {
+    struct kevent ev;
+
+    EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+
+    if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+      perror("Failed to enable write event");
+    }
+  }
+
 public:
   int initialize() {
     signal(SIGPIPE, SIG_IGN);
