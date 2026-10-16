@@ -1,4 +1,5 @@
 #include "server_io.hpp"
+#include <vector>
 
 void queue_write(int fd, const std::vector<uint8_t> &data,
                  ClientManager &manager) {

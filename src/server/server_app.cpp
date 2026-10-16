@@ -6,17 +6,13 @@
 #include <cerrno>
 #include <csignal>
 #include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <iostream>
-#include <map>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#include <ostream>
-#include <random>
 #include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -67,16 +63,6 @@ private:
     }
 
     return ctx;
-  }
-
-  void enable_write_event(int kq, int fd) {
-    struct kevent ev;
-
-    EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, nullptr);
-
-    if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
-      perror("Failed to enable write event");
-    }
   }
 
 public:

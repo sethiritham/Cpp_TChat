@@ -6,13 +6,11 @@
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
-#include <iostream>
 #include <map>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#include <ostream>
-#include <random>
+#include <queue>
 #include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -27,16 +25,14 @@ struct ClientConnection {
   int fd;
   SSL *ssl;
 
-  std::vector<uint8_t> rx_buffer;
   std::deque<std::vector<uint8_t>> tx_queue;
+  std::vector<uint8_t> rx_buffer;
 
   int tx_offset = 0;
 
   time_t last_seen = time(nullptr);
 
-  ClientConnection(int fd, SSL *ssl) : fd(fd), ssl(ssl) {
-    rx_buffer.reserve(65536);
-  }
+  ClientConnection(int fd, SSL *ssl) : fd(fd), ssl(ssl) {}
 };
 
 struct ClientSession {

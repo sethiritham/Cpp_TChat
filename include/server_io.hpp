@@ -19,6 +19,7 @@
 enum class FlushResult { QueueEmpty, WriteWait, ReadWait, FatalError };
 
 enum class ReadResult { DataReceived, WantRead, WantWrite, FatalError };
+
 void queue_write(int fd, const std::vector<uint8_t> &data,
                  ClientManager &manager);
 

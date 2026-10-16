@@ -35,16 +35,18 @@ constexpr uint16_t PROTOCOL_KEY = 0x4354;
  * - RGSTR = 0x09
  */
 
-#define FILE_META 0x00
-#define FILE_CHUNK 0x01
-#define MESSAGE 0x02
-#define CMND 0x03
-#define ACK 0x04
-#define PRESENCE 0x05
-#define POLL 0x06
-#define PING 0x07
-#define AUTH 0x08
-#define RGSTR 0x09
+enum class PacketType : std::uint8_t {
+  FileMeta = 0x00,
+  FileChunk = 0x01,
+  Message = 0x02,
+  Command = 0x03,
+  Ack = 0x04,
+  Presence = 0x05,
+  Pong = 0x06,
+  Ping = 0x07,
+  Auth = 0x08,
+  Register = 0x09
+};
 
 #pragma pack(push, 1)
 /**
@@ -59,8 +61,8 @@ constexpr uint16_t PROTOCOL_KEY = 0x4354;
 /**
  * @class PacketHeader
  * @brief Meta data of the packet
- *
- */
+ * */
+
 struct PacketHeader {
 
   uint16_t magic;  ///< The unique protocol for the chat
