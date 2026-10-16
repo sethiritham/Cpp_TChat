@@ -75,5 +75,5 @@ struct PacketHeader {
 };
 #pragma pack(pop)
 
-std::vector<uint8_t> create_packet_stream(const uint8_t &type,
+std::vector<uint8_t> create_packet_stream(const PacketType &type,
                                           const std::string &payload);

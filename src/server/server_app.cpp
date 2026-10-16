@@ -26,7 +26,7 @@ public:
   int listening_fd_;
   SSL_CTX *ssl_ctx_;
 
-  ClientManager client_manager_;
+  ClientManager client_client_manager_;
 
 private:
   bool p_running;

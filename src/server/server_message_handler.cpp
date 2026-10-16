@@ -1,6 +1,8 @@
 #include "server_message_handler.hpp"
-
-enum class ProcessStreamResult { BufferEmpty, InvalidProtocolError };
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 /**
  * @brief Processes the receive buffer of the client session and broadcasts it
@@ -8,7 +10,10 @@ enum class ProcessStreamResult { BufferEmpty, InvalidProtocolError };
  *
  * @param session session from whom server received the data
  */
-void process_client_stream(ClientConnection *connection) {
+ProcessStreamResult process_client_stream(ClientSession *session,
+                                          ClientManager &client_manager) {
+
+  ClientConnection *connection = session->connection;
 
   connection->last_seen = time(nullptr);
 
@@ -18,7 +23,7 @@ void process_client_stream(ClientConnection *connection) {
     std::memcpy(&header, connection->rx_buffer.data(), sizeof(PacketHeader));
 
     if (ntohs(header.magic) != PROTOCOL_KEY) {
-      return;
+      return ProcessStreamResult::InvalidProtocolError;
     }
 
     PacketType type = static_cast<PacketType>(header.type);
@@ -29,26 +34,56 @@ void process_client_stream(ClientConnection *connection) {
       break;
     }
 
+    std::string payload(connection->rx_buffer.begin() + sizeof(PacketHeader),
+                        connection->rx_buffer.begin() + total_size);
+
+    connection->rx_buffer.erase(connection->rx_buffer.begin(),
+                                connection->rx_buffer.begin() + total_size);
+
     switch (type) {
 
     case PacketType::Message:
-      // print the message
-      // break;
+      print_message(payload, PrintKind::Client, session->username);
+      break;
     case PacketType::Command:
-      // client quits (only command for now)
+      if (payload.find("/quit") != std::string::npos) {
+        client_manager.disconnect(session->connection);
+      }
       break;
     case PacketType::Ping:
-      // Pong
+      client_manager.pong(session->connection);
       break;
-    case PacketType::Auth:
-      // Login
+    case PacketType::Auth: {
+      size_t delimeter = payload.find("|");
+      if (delimeter == std::string::npos) {
+        break;
+      }
+
+      std::string username = payload.substr(0, delimeter);
+      std::string password = payload.substr(delimeter + 1);
+      client_manager.authorize_client(username, password);
       break;
-    case PacketType::Register:
-      // add new client
+    }
+    case PacketType::Register: {
+      size_t delimeter = payload.find("|");
+
+      if (delimeter == std::string::npos) {
+        break;
+      }
+
+      std::string username = payload.substr(0, delimeter);
+      std::string password = payload.substr(delimeter + 1);
+
+      client_manager.register_client(username, password);
+
       break;
+    }
+
     default:
 
       break;
     }
   }
+
+  return ProcessStreamResult::BufferEmpty;
 }

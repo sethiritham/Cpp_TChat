@@ -39,6 +39,8 @@ struct ClientSession {
   std::string username;
   std::string token;
 
+  ClientConnection *connection;
+
   SessionState state = SessionState::Connected;
 };
 
@@ -70,9 +72,14 @@ private:
 
 public:
   bool kick(const std::string &username);
+  bool disconnect(ClientConnection *connection);
 
   ClientSession *find_session(const std::string &username);
   ClientConnection *find_connection(const int &fd);
+
+  void pong(ClientConnection *connection);
+  bool authorize_client(std::string &username, std::string &password);
+  bool register_client(std::string &username, std::string &password);
 
   void for_each_connection(
       const std::function<void(int, ClientConnection &)> &callback);
