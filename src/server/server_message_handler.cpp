@@ -8,6 +8,19 @@
 HandshakeResult process_handshake_packet(ClientConnection *connection) {
   PacketHeader header;
   HandshakeResult result;
+  result.request.kind = HandshakeKind::Error;
+
+  if (!connection) {
+    result.status = HandshakeStreamStatus::InvalidProtocolError;
+    return result;
+  }
+
+  auto &buffer = connection->rx_buffer;
+
+  if (buffer.size() < sizeof(PacketHeader)) {
+    result.status = HandshakeStreamStatus::IncompletePacket;
+    return result;
+  }
 
   std::memcpy(&header, connection->rx_buffer.data(), sizeof(PacketHeader));
 
@@ -34,6 +47,9 @@ HandshakeResult process_handshake_packet(ClientConnection *connection) {
 
   std::memcpy(payload, connection->rx_buffer.data() + sizeof(PacketHeader),
               payload_length);
+
+  connection->rx_buffer.erase(connection->rx_buffer.begin(),
+                              connection->rx_buffer.begin() + total_size);
 
   payload[payload_length] = '\0';
 
