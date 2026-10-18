@@ -1,5 +1,3 @@
-#include "protocol.hpp"
-
 #include "server_connection.hpp"
 #include "ui.hpp"
 #include <arpa/inet.h>

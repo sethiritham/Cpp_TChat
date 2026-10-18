@@ -30,6 +30,7 @@ public:
 
 private:
   bool p_running;
+  int p_kq;
   std::vector<struct kevent> p_event_list;
 
 private:
@@ -95,7 +96,7 @@ public:
     set_nonblocking(this->listening_fd_);
     set_nonblocking(STDIN_FILENO);
 
-    int kq = kqueue();
+    p_kq = kqueue();
     struct kevent init_evs[2];
     struct kevent timer_ev;
 
@@ -103,11 +104,11 @@ public:
            0, 0, nullptr);
     EV_SET(&init_evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
            nullptr);
-    kevent(kq, init_evs, 2, nullptr, 0, nullptr);
+    kevent(p_kq, init_evs, 2, nullptr, 0, nullptr);
 
     EV_SET(&timer_ev, SERVER_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
            NOTE_SECONDS, 5, nullptr);
-    kevent(kq, &timer_ev, 1, nullptr, 0, nullptr);
+    kevent(p_kq, &timer_ev, 1, nullptr, 0, nullptr);
 
     safePrint("[SERVER] active on PORT: 8080", true);
 
@@ -121,5 +122,38 @@ public:
     p_running = true;
 
     return 1;
+  }
+
+  void run() {
+    while (p_running) {
+      int nevents =
+          kevent(p_kq, nullptr, 0, p_event_list.data(), MAX_EVENTS, nullptr);
+      if (nevents < 0) {
+        if (errno == EINTR)
+          continue; // call interupted by async signal
+        break;
+      }
+
+      for (int i = 0; i < nevents; ++i) {
+        int current_fd = static_cast<int>(p_event_list[i].ident);
+
+        if (p_event_list[i].filter == EVFILT_TIMER &&
+            current_fd == SERVER_TIMER_IDENT) {
+          // check client timeout
+        }
+
+        if (current_fd == STDIN_FILENO) {
+          // write
+        }
+
+        else if (current_fd == listening_fd_) {
+          // connection/reconnection
+        }
+
+        else if (p_event_list[i].filter == EVFILT_READ) {
+          // read
+        }
+      }
+    }
   }
 };

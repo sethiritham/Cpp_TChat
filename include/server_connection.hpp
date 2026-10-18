@@ -1,3 +1,6 @@
+#pragma once
+
+#include "protocol.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -17,11 +20,21 @@
 #include <unistd.h>
 #include <vector>
 
-enum class SessionState { Connected, Reconnected, Kicked, Expired };
+enum class SessionState {
+  Connected,
+  Reconnected,
+  Kicked,
+  Expired,
+  Disconnected
+};
 
 enum class WriteWait { Read, Write, None };
 
 enum class ConnectionStatus { AwaitingAuth, Authenticated, Closing };
+
+enum class DisconnectStatus { Disconnected, ClientNotFound };
+
+enum class KickStatus { Kicked, ClientNotFound };
 
 struct ClientConnection {
   int fd = -1;
@@ -44,6 +57,8 @@ struct ClientSession {
   std::string token;
 
   ClientConnection *connection;
+
+  time_t disconnected_at = time(nullptr);
 
   SessionState state = SessionState::Connected;
 };
@@ -77,8 +92,8 @@ private:
   bool authorize_client(const std::vector<uint8_t> &auth_packet);
 
 public:
-  bool kick(const std::string &username);
-  bool disconnect(ClientConnection *connection);
+  KickStatus kick(const std::string &username);
+  DisconnectStatus disconnect(ClientConnection *connection);
 
   ClientSession *find_session(const std::string &username);
   ClientConnection *find_connection(const int &fd);
