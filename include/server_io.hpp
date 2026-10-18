@@ -1,5 +1,5 @@
+#include "queue"
 #include "server_app.hpp"
-#include "server_connection.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -16,12 +16,15 @@
 #include <unistd.h>
 #include <vector>
 
+struct ClientConnection;
+class ClientManager;
+
 enum class FlushResult { QueueEmpty, WriteWait, ReadWait, FatalError };
 
 enum class ReadResult { DataReceived, WantRead, WantWrite, FatalError };
 
 void queue_write(int fd, const std::vector<uint8_t> &data,
-                 ClientManager &manager);
+                 std::deque<std::vector<uint8_t>> &tx_queue);
 
 FlushResult flush_write(ClientConnection *connection);
 

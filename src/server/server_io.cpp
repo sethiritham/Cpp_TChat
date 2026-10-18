@@ -1,46 +1,41 @@
 #include "server_io.hpp"
+#include "server_connection.hpp"
+#include <deque>
 #include <vector>
 
 void queue_write(int fd, const std::vector<uint8_t> &data,
-                 ClientManager &manager) {
-  ClientConnection *connection = manager.find_connection(fd);
-
-  connection->tx_queue.push_back(data);
+                 std::deque<std::vector<uint8_t>> &tx_queue) {
+  tx_queue.push_back(data);
 }
 
-FlushResult flush_write(ClientConnection *connection) {
-  if (connection->fd < 0 || connection->ssl == nullptr) {
-    return FlushResult::FatalError;
-  }
+FlushResult flush_write(std::deque<std::vector<uint8_t>> &tx_queue,
+                        int &tx_offset, SSL *ssl) {
 
-  while (!connection->tx_queue.empty()) {
-    auto &packet = connection->tx_queue.front();
+  while (!tx_queue.empty()) {
+    auto &packet = tx_queue.front();
 
     if (packet.empty()) {
-      connection->tx_queue.pop_front();
-      connection->tx_offset = 0;
+      tx_queue.pop_front();
+      tx_offset = 0;
       continue;
     }
 
-    size_t remaining = packet.size() - connection->tx_offset;
+    size_t remaining = packet.size() - tx_offset;
 
-    int result = SSL_write(connection->ssl, packet.data(), packet.size());
-
-    connection->rx_buffer.insert(connection->rx_buffer.end(), packet.begin(),
-                                 packet.end());
+    int result = SSL_write(ssl, packet.data(), packet.size());
 
     if (result > 0) {
-      connection->tx_offset += result;
+      tx_offset += result;
 
-      if (connection->tx_offset >= packet.size()) {
-        connection->tx_queue.pop_front();
-        connection->tx_offset = 0;
+      if (tx_offset >= packet.size()) {
+        tx_queue.pop_front();
+        tx_offset = 0;
       }
 
       continue;
     }
 
-    int error = SSL_get_error(connection->ssl, result);
+    int error = SSL_get_error(ssl, result);
 
     if (error == SSL_ERROR_WANT_READ) {
       return FlushResult::ReadWait;
@@ -63,7 +58,7 @@ void broadcast(int sender_fd, const std::vector<uint8_t> &packet,
       return;
     }
 
-    queue_write(fd, packet, manager);
+    queue_write(fd, packet, connection.tx_queue);
   });
 }
 

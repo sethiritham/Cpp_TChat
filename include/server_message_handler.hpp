@@ -1,4 +1,7 @@
-#include "server_connection.hpp"
+
+#pragma once
+
+#include "protocol.hpp"
 #include "ui.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
@@ -18,9 +21,12 @@
 
 enum class ProcessStreamResult {
   BufferEmpty,
+  IncompletePacket,
   InvalidProtocolError,
   ProcessComplete,
-  ClientDisconnected,
+  DisconnectClient,
+  SendPong,
+  PrintMessage
 };
 
 enum class HandshakeStreamStatus {
@@ -58,7 +64,6 @@ struct HandshakeResult {
  *
  * @param session session from whom server received the data
  */
-ProcessStreamResult process_client_stream(ClientSession *session,
-                                          ClientManager &manager);
+ProcessStreamResult process_client_stream(std::vector<uint8_t> &rx_buffer);
 
-HandshakeResult process_handshake_packet(ClientConnection *connection);
+HandshakeResult process_handshake_packet(std::vector<uint8_t> &rx_buffer);

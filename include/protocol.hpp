@@ -1,3 +1,5 @@
+#pragma once
+
 #include <arpa/inet.h>
 #include <cstdint>
 #include <cstring>
@@ -46,6 +48,7 @@ enum class PacketType : std::uint8_t {
   Ping = 0x07,
   Login = 0x08,
   Register = 0x09,
+  Error = 0x10,
   Reconnnect = 0x0A
 };
 

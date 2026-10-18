@@ -5,24 +5,17 @@
 #include <string>
 #include <vector>
 
-HandshakeResult process_handshake_packet(ClientConnection *connection) {
+HandshakeResult process_handshake_packet(std::vector<uint8_t> &rx_buffer) {
   PacketHeader header;
   HandshakeResult result;
   result.request.kind = HandshakeKind::Error;
 
-  if (!connection) {
-    result.status = HandshakeStreamStatus::InvalidProtocolError;
-    return result;
-  }
-
-  auto &buffer = connection->rx_buffer;
-
-  if (buffer.size() < sizeof(PacketHeader)) {
+  if (rx_buffer.size() < sizeof(PacketHeader)) {
     result.status = HandshakeStreamStatus::IncompletePacket;
     return result;
   }
 
-  std::memcpy(&header, connection->rx_buffer.data(), sizeof(PacketHeader));
+  std::memcpy(&header, rx_buffer.data(), sizeof(PacketHeader));
 
   if (ntohs(header.magic) != PROTOCOL_KEY) {
     result.status = HandshakeStreamStatus::InvalidProtocolError;
@@ -40,16 +33,14 @@ HandshakeResult process_handshake_packet(ClientConnection *connection) {
     return result;
   }
 
-  if (connection->rx_buffer.size() < total_size) {
+  if (rx_buffer.size() < total_size) {
     result.status = HandshakeStreamStatus::IncompletePacket;
     return result;
   }
 
-  std::memcpy(payload, connection->rx_buffer.data() + sizeof(PacketHeader),
-              payload_length);
+  std::memcpy(payload, rx_buffer.data() + sizeof(PacketHeader), payload_length);
 
-  connection->rx_buffer.erase(connection->rx_buffer.begin(),
-                              connection->rx_buffer.begin() + total_size);
+  rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
 
   payload[payload_length] = '\0';
 
@@ -102,17 +93,12 @@ HandshakeResult process_handshake_packet(ClientConnection *connection) {
  *
  * @param session session from whom server received the data
  */
-ProcessStreamResult process_client_stream(ClientSession *session,
-                                          ClientManager &client_manager) {
+ProcessStreamResult process_client_stream(std::vector<uint8_t> &rx_buffer) {
 
-  ClientConnection *connection = session->connection;
-
-  connection->last_seen = time(nullptr);
-
-  while (connection->rx_buffer.size() >= sizeof(PacketHeader)) {
+  while (rx_buffer.size() >= sizeof(PacketHeader)) {
     PacketHeader header;
 
-    std::memcpy(&header, connection->rx_buffer.data(), sizeof(PacketHeader));
+    std::memcpy(&header, rx_buffer.data(), sizeof(PacketHeader));
 
     if (ntohs(header.magic) != PROTOCOL_KEY) {
       return ProcessStreamResult::InvalidProtocolError;
@@ -122,35 +108,29 @@ ProcessStreamResult process_client_stream(ClientSession *session,
     uint32_t payload_len = ntohl(header.payload_length);
     size_t total_size = sizeof(PacketHeader) + payload_len;
 
-    if (connection->rx_buffer.size() < total_size) {
-      break;
+    if (rx_buffer.size() < total_size) {
+      return ProcessStreamResult::IncompletePacket;
     }
 
-    std::string payload(connection->rx_buffer.begin() + sizeof(PacketHeader),
-                        connection->rx_buffer.begin() + total_size);
+    std::string payload(rx_buffer.begin() + sizeof(PacketHeader),
+                        rx_buffer.begin() + total_size);
 
-    connection->rx_buffer.erase(connection->rx_buffer.begin(),
-                                connection->rx_buffer.begin() + total_size);
+    rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
 
     switch (type) {
 
     case PacketType::Message:
-      print_message(payload, PrintKind::Client, session->username);
-      break;
+      return ProcessStreamResult::PrintMessage;
 
     case PacketType::Command:
       if (payload == "/quit") {
-        client_manager.disconnect(session->connection);
-        return ProcessStreamResult::ClientDisconnected;
+        return ProcessStreamResult::DisconnectClient;
       }
-      break;
 
     case PacketType::Ping:
-      client_manager.pong(session->connection);
-      break;
+      return ProcessStreamResult::SendPong;
 
     default:
-
       break;
     }
   }

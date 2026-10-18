@@ -1,6 +1,4 @@
 #include "server_connection.hpp"
-#include "network.hpp"
-#include "server_io.hpp"
 #include <string>
 #include <vector>
 
@@ -90,7 +88,7 @@ void ClientManager::pong(ClientConnection *connection) {
   connection->last_seen = time(nullptr);
 
   std::vector<uint8_t> pong_packet = create_packet_stream(PacketType::Pong, "");
-  queue_write(connection->fd, pong_packet, *this);
+  queue_write(connection->fd, pong_packet, connection->tx_queue);
 }
 
 void ClientManager::handle_client_connection(int server_fd, SSL_CTX *ssl_ctx,
