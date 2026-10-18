@@ -21,9 +21,11 @@ enum class SessionState { Connected, Reconnected, Kicked, Expired };
 
 enum class WriteWait { Read, Write, None };
 
+enum class ConnectionStatus { AwaitingAuth, Authenticated, Closing };
+
 struct ClientConnection {
-  int fd;
-  SSL *ssl;
+  int fd = -1;
+  SSL *ssl = nullptr;
 
   std::deque<std::vector<uint8_t>> tx_queue;
   std::vector<uint8_t> rx_buffer;
@@ -31,6 +33,8 @@ struct ClientConnection {
   int tx_offset = 0;
 
   time_t last_seen = time(nullptr);
+
+  ConnectionStatus status = ConnectionStatus::AwaitingAuth;
 
   ClientConnection(int fd, SSL *ssl) : fd(fd), ssl(ssl) {}
 };
@@ -70,6 +74,8 @@ private:
     }
   }
 
+  bool authorize_client(const std::vector<uint8_t> &auth_packet);
+
 public:
   bool kick(const std::string &username);
   bool disconnect(ClientConnection *connection);
@@ -78,8 +84,8 @@ public:
   ClientConnection *find_connection(const int &fd);
 
   void pong(ClientConnection *connection);
-  bool authorize_client(std::string &username, std::string &password);
-  bool register_client(std::string &username, std::string &password);
+
+  void handle_client_connection(int server_fd, SSL_CTX *ssl_ctx, int kq);
 
   void for_each_connection(
       const std::function<void(int, ClientConnection &)> &callback);

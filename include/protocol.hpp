@@ -44,8 +44,9 @@ enum class PacketType : std::uint8_t {
   Presence = 0x05,
   Pong = 0x06,
   Ping = 0x07,
-  Auth = 0x08,
-  Register = 0x09
+  Login = 0x08,
+  Register = 0x09,
+  Reconnnect = 0x0A
 };
 
 #pragma pack(push, 1)

@@ -6,17 +6,54 @@
 #include <cerrno>
 #include <csignal>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-enum class ProcessStreamResult { BufferEmpty, InvalidProtocolError };
+enum class ProcessStreamResult {
+  BufferEmpty,
+  InvalidProtocolError,
+  ProcessComplete,
+  ClientDisconnected,
+};
+
+enum class HandshakeStreamStatus {
+  InvalidAuthPacket,
+  ValidAuthPacket,
+  InvalidProtocolError,
+  IncompletePacket,
+};
+
+enum class HandshakeKind { Login, Register, Reconnect, Error };
+
+constexpr uint32_t MAX_HANDSHAKE_PAYLOAD = 512;
+
+struct HandshakeRequest {
+  HandshakeKind kind;
+  std::string username;
+  std::string password;
+
+  std::string token;
+
+  HandshakeRequest() {
+    kind = HandshakeKind::Error;
+    username = "";
+    password = "";
+  }
+};
+
+struct HandshakeResult {
+  HandshakeStreamStatus status;
+  HandshakeRequest request;
+};
 /**
  * @brief Processes the receive buffer of the client session and broadcasts it
  * after packetizing it
@@ -25,3 +62,5 @@ enum class ProcessStreamResult { BufferEmpty, InvalidProtocolError };
  */
 ProcessStreamResult process_client_stream(ClientSession *session,
                                           ClientManager &manager);
+
+HandshakeResult process_handshake_packet(ClientConnection *connection);
