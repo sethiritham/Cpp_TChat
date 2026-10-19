@@ -1,4 +1,5 @@
 #include "server_connection.hpp"
+#include "authorization.hpp"
 #include "network.hpp"
 #include "protocol.hpp"
 #include "server_io.hpp"
@@ -46,8 +47,20 @@ AcceptClientStatus ClientManager::accept_client(int fd, SSL_CTX *ssl_ctx) {
   case HandshakeStreamStatus::InvalidProtocolError: {
     auto error_packet = create_packet_stream(PacketType::Error,
                                              "[SERVER]: Invalid Protocol key");
-
     queue_write(fd, error_packet, connection->tx_queue);
+    return AcceptClientStatus::FailedToAuthorize;
+  }
+  case HandshakeStreamStatus::IncompletePacket: {
+    auto error_packet = create_packet_stream(
+        PacketType::Error, "[SERVER] : Incomplete auth packet");
+    queue_write(fd, error_packet, connection->tx_queue);
+
+    return AcceptClientStatus::FailedToAuthorize;
+  }
+  case HandshakeStreamStatus::InvalidAuthPacket: {
+    auto error_packet = create_packet_stream(PacketType::Error,
+                                             "[SERVER] : Invalid auth packet");
+    return AcceptClientStatus::FailedToAuthorize;
   }
 
   default:
@@ -56,6 +69,16 @@ AcceptClientStatus ClientManager::accept_client(int fd, SSL_CTX *ssl_ctx) {
 
   // manage Login Register Reconnection
   switch (result.request.kind) {
+  case HandshakeKind::Register: {
+    register_client(result.request.username, result.request.password);
+  }
+  case HandshakeKind::Login: {
+    verify_user(result.request.username, result.request.password);
+  }
+  case HandshakeKind::Reconnect: {
+    verify_user(result.request.username, result.request.token);
+  }
+
   default:
     break;
   }

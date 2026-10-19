@@ -37,8 +37,8 @@ enum class KickStatus { Kicked, ClientNotFound };
 
 enum class AcceptClientStatus {
   FailedHandshake,
-  AcceptedClient
-
+  AcceptedClient,
+  FailedToAuthorize
 };
 
 struct ClientConnection {
