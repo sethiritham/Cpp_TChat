@@ -1,6 +1,67 @@
 #include "server_connection.hpp"
+#include "network.hpp"
+#include "protocol.hpp"
+#include "server_io.hpp"
+#include "server_message_handler.hpp"
 #include <string>
 #include <vector>
+
+void ClientManager::enable_write_event(int kq, int fd) {
+  struct kevent ev;
+
+  EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+
+  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+    perror("Failed to enable write event");
+  }
+}
+
+void ClientManager::disable_write_event(int kq, int fd) {
+  struct kevent ev;
+
+  EV_SET(&ev, fd, EVFILT_WRITE, EV_DISABLE, 0, 0, nullptr);
+
+  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+    perror("Failed to disable write event");
+  }
+}
+
+AcceptClientStatus ClientManager::accept_client(int fd, SSL_CTX *ssl_ctx) {
+  ClientConnection *connection = find_connection(fd);
+  set_blocking(fd);
+
+  SSL *ssl = SSL_new(ssl_ctx);
+  SSL_set_fd(ssl, fd);
+
+  if (SSL_accept(ssl) <= 0) {
+    return AcceptClientStatus::FailedHandshake;
+  }
+
+  connections_[fd] = ClientConnection(fd, ssl);
+
+  HandshakeResult result = process_handshake_packet(connections_[fd].rx_buffer);
+
+  // manage invalid statuses
+  switch (result.status) {
+  case HandshakeStreamStatus::InvalidProtocolError: {
+    auto error_packet = create_packet_stream(PacketType::Error,
+                                             "[SERVER]: Invalid Protocol key");
+
+    queue_write(fd, error_packet, connection->tx_queue);
+  }
+
+  default:
+    break;
+  }
+
+  // manage Login Register Reconnection
+  switch (result.request.kind) {
+  default:
+    break;
+  }
+
+  return AcceptClientStatus::AcceptedClient;
+}
 
 DisconnectStatus ClientManager::disconnect(ClientConnection *connection) {
   if (!connection) {

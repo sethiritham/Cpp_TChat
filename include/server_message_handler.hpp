@@ -1,7 +1,6 @@
 
 #pragma once
 
-#include "protocol.hpp"
 #include "ui.hpp"
 #include <arpa/inet.h>
 #include <cerrno>

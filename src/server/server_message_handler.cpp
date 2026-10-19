@@ -1,4 +1,5 @@
 #include "server_message_handler.hpp"
+#include "protocol.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
