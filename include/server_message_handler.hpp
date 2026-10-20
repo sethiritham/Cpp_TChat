@@ -1,7 +1,6 @@
 
 #pragma once
 
-#include "ui.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -17,6 +16,7 @@
 #include <sys/event.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <vector>
 
 enum class ProcessStreamResult {
   BufferEmpty,

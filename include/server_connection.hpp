@@ -38,8 +38,10 @@ enum class KickStatus { Kicked, ClientNotFound };
 enum class AcceptClientStatus {
   FailedHandshake,
   AcceptedClient,
-  FailedToAuthorize
+  NoPendingConnection
 };
+
+enum class TimeoutStatus { ClientTimedOut, Error, ClientActive };
 
 struct ClientConnection {
   int fd = -1;
@@ -80,8 +82,6 @@ private:
 
   bool authorize_client(const std::vector<uint8_t> &auth_packet);
 
-  AcceptClientStatus accept_client(int fd, SSL_CTX *ssl_ctx);
-
 public:
   KickStatus kick(const std::string &username);
   DisconnectStatus disconnect(ClientConnection *connection);
@@ -91,7 +91,9 @@ public:
 
   void pong(ClientConnection *connection);
 
-  void handle_client_connection(int server_fd, SSL_CTX *ssl_ctx, int kq);
+  AcceptClientStatus accept_client(int server_fd, SSL_CTX *ssl_ctx, int kq);
+
+  TimeoutStatus check_client_timeout();
 
   void for_each_connection(
       const std::function<void(int, ClientConnection &)> &callback);

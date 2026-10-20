@@ -1,7 +1,9 @@
-#include "auth.hpp"
-#include "chat2.hpp"
 #include "network.hpp"
+#include "protocol.hpp"
 #include "server_connection.hpp"
+#include "server_io.hpp"
+#include "server_message_handler.hpp"
+#include "ui.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
@@ -26,7 +28,7 @@ public:
   int listening_fd_;
   SSL_CTX *ssl_ctx_;
 
-  ClientManager client_client_manager_;
+  ClientManager client_manager_;
 
 private:
   bool p_running;
@@ -90,8 +92,8 @@ public:
 
     ssl_ctx_ = init_server_ssl_context();
 
-    setupNcurses();
-    safePrint("Waiting for clients to join", true);
+    // setupNcurses();
+    // safePrint("Waiting for clients to join", true);
 
     set_nonblocking(this->listening_fd_);
     set_nonblocking(STDIN_FILENO);
@@ -110,13 +112,11 @@ public:
            NOTE_SECONDS, 5, nullptr);
     kevent(p_kq, &timer_ev, 1, nullptr, 0, nullptr);
 
-    safePrint("[SERVER] active on PORT: 8080", true);
+    // safePrint("[SERVER] active on PORT: 8080", true);
 
     p_event_list.reserve(32);
 
-    if (!create_table()) {
-      return -1;
-    }
+    // create database
 
     std::string input_buffer;
     p_running = true;
@@ -139,19 +139,64 @@ public:
 
         if (p_event_list[i].filter == EVFILT_TIMER &&
             current_fd == SERVER_TIMER_IDENT) {
-          // check client timeout
+          // check_client_connection();
+          // Incase client is inactive for more than 10 sec, disconnect the
+          // client
         }
 
         if (current_fd == STDIN_FILENO) {
+          // handle keyboard read event
           // write
         }
 
-        else if (current_fd == listening_fd_) {
-          // connection/reconnection
+        else if (p_event_list[i].filter == EVFILT_READ &&
+                 current_fd == listening_fd_) {
+
+          AcceptClientStatus status =
+              client_manager_.accept_client(listening_fd_, ssl_ctx_, p_kq);
+
+          switch (status) {
+          case AcceptClientStatus::AcceptedClient: {
+
+            // Log success
+            break;
+          }
+          case AcceptClientStatus::FailedHandshake: {
+            // Log faliure
+            // Close the connection, free the SSL pointer the entire shabang
+            break;
+          }
+          default:
+            // No pending connection, continue with normal read
+            break;
+          }
         }
 
         else if (p_event_list[i].filter == EVFILT_READ) {
-          // read
+          ClientConnection *connection =
+              client_manager_.find_connection(current_fd);
+
+          ReadResult result = handle_read(connection);
+
+          switch (result) {
+          case ReadResult::DataReceived: {
+            if (connection->status == ConnectionStatus::AwaitingAuth) {
+              // parse auth packet, call auth function, verify the client
+            } else {
+            }
+            break;
+            // Parse, broadcast, print
+          }
+          case ReadResult::FatalError: {
+            // Error
+          }
+          case ReadResult::WantRead: {
+            // enable read event
+          }
+          case ReadResult::WantWrite: {
+            // enable write event
+          }
+          }
         }
       }
     }
