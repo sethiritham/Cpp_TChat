@@ -3,7 +3,6 @@
 #include "network.hpp"
 #include "protocol.hpp"
 #include "server_io.hpp"
-#include "server_message_handler.hpp"
 #include <string>
 #include <vector>
 
@@ -175,4 +174,11 @@ void ClientManager::pong(ClientConnection *connection) {
 
   std::vector<uint8_t> pong_packet = create_packet_stream(PacketType::Pong, "");
   queue_write(connection->fd, pong_packet, connection->tx_queue);
+}
+
+void ClientManager::check_client_timeout() {
+  for (auto &[username, session] : sessions_) {
+    if (session.connection->last_seen > 10) {
+    }
+  }
 }

@@ -1,5 +1,5 @@
-#include "server_message_handler.hpp"
 #include "protocol.hpp"
+#include "server_message_handler.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -94,7 +94,8 @@ HandshakeResult process_handshake_packet(std::vector<uint8_t> &rx_buffer) {
  *
  * @param session session from whom server received the data
  */
-ProcessStreamResult process_client_stream(std::vector<uint8_t> &rx_buffer) {
+ProcessStreamResult process_client_stream(std::vector<uint8_t> &rx_buffer,
+                                          std::string &message) {
 
   while (rx_buffer.size() >= sizeof(PacketHeader)) {
     PacketHeader header;
@@ -121,6 +122,7 @@ ProcessStreamResult process_client_stream(std::vector<uint8_t> &rx_buffer) {
     switch (type) {
 
     case PacketType::Message:
+      message = payload;
       return ProcessStreamResult::PrintMessage;
 
     case PacketType::Command:

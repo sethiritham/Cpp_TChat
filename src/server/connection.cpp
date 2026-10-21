@@ -1,6 +1,6 @@
-#include "server_connection.hpp"
 #include "network.hpp"
 #include "protocol.hpp"
+#include "server_connection.hpp"
 #include "server_io.hpp"
 #include "server_message_handler.hpp"
 #include <string>
@@ -26,7 +26,8 @@ void ClientManager::disable_write_event(int kq, int fd) {
   }
 }
 
-AcceptClientStatus ClientManager::accept_client(int fd, SSL_CTX *ssl_ctx) {
+AcceptClientStatus ClientManager::accept_client(int fd, SSL_CTX *ssl_ctx,
+                                                int kq) {
   ClientConnection *connection = find_connection(fd);
   set_blocking(fd);
 
@@ -48,29 +49,19 @@ AcceptClientStatus ClientManager::accept_client(int fd, SSL_CTX *ssl_ctx) {
                                              "[SERVER]: Invalid Protocol key");
     queue_write(fd, error_packet, connection->tx_queue);
 
-    return AcceptClientStatus::FailedToAuthorize;
+    return AcceptClientStatus::FailedHandshake;
   }
   case HandshakeStreamStatus::IncompletePacket: {
     auto error_packet = create_packet_stream(
         PacketType::Error, "[SERVER] : Incomplete auth packet");
     queue_write(fd, error_packet, connection->tx_queue);
 
-    return AcceptClientStatus::FailedToAuthorize;
+    return AcceptClientStatus::FailedHandshake;
   }
   case HandshakeStreamStatus::InvalidAuthPacket: {
     auto error_packet = create_packet_stream(PacketType::Error,
                                              "[SERVER] : Invalid auth packet");
-    return AcceptClientStatus::FailedToAuthorize;
-  }
-
-  default:
-    break;
-  }
-
-  // manage Login Register Reconnection
-  switch (result.request.kind) {
-  case HandshakeKind::Register: {
-    register_client(result.request.username, result.request.password);
+    return AcceptClientStatus::FailedHandshake;
   }
   default:
     break;
@@ -168,16 +159,13 @@ void ClientManager::pong(ClientConnection *connection) {
   queue_write(connection->fd, pong_packet, connection->tx_queue);
 }
 
-void ClientManager::handle_client_connection(int server_fd, SSL_CTX *ssl_ctx,
-                                             int kq) {
-  sockaddr_in client_addr;
-  socklen_t len = sizeof(client_addr);
-
-  int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &len);
-
-  if (client_fd >= 0) {
-    // client login
-  } else {
-    // Error
+ClientSession *
+ClientManager::find_sesssion_from_connection(ClientConnection *connection) {
+  for (auto &[username, session] : sessions_) {
+    if (session.connection == connection) {
+      return &session;
+    }
   }
+
+  return nullptr;
 }

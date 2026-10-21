@@ -157,7 +157,6 @@ public:
 
           switch (status) {
           case AcceptClientStatus::AcceptedClient: {
-
             // Log success
             break;
           }
@@ -175,17 +174,110 @@ public:
         else if (p_event_list[i].filter == EVFILT_READ) {
           ClientConnection *connection =
               client_manager_.find_connection(current_fd);
+          ClientSession *session =
+              client_manager_.find_sesssion_from_connection(connection);
 
           ReadResult result = handle_read(connection);
 
           switch (result) {
           case ReadResult::DataReceived: {
             if (connection->status == ConnectionStatus::AwaitingAuth) {
-              // parse auth packet, call auth function, verify the client
+              HandshakeResult result;
+              result = process_handshake_packet(connection->rx_buffer);
+
+              switch (result.status) {
+              case HandshakeStreamStatus::IncompletePacket: {
+                break;
+              }
+              case HandshakeStreamStatus::InvalidProtocolError: {
+                std::string faliure_msg =
+                    "Auth packet sent with the wrong protocol, authentication "
+                    "failed, disconnecting";
+                print_message(faliure_msg, PrintKind::Error);
+              }
+              case HandshakeStreamStatus::InvalidAuthPacket: {
+                std::string faliure_msg =
+                    "Invalid auth packet sent, authentication "
+                    "failed, disconnecting";
+                print_message(faliure_msg, PrintKind::Error);
+              }
+              case HandshakeStreamStatus::ValidAuthPacket: {
+                AcceptClientStatus status = client_manager_.accept_client(
+                    listening_fd_, ssl_ctx_, p_kq);
+
+                switch (status) {
+                case AcceptClientStatus::FailedHandshake: {
+                  std::string faliure_msg = "TLS Handshake failed, unable to "
+                                            "accept the client, disconnecting";
+                  print_message(faliure_msg, PrintKind::Error);
+                }
+                case AcceptClientStatus::AcceptedClient: {
+                  switch (result.request.kind) {
+                  case HandshakeKind::Login: {
+                    // call login
+                    break;
+                  }
+                  case HandshakeKind::Reconnect: {
+                    // call reconnect
+                    break;
+                  }
+                  case HandshakeKind::Register: {
+                    // call Register
+                    break;
+                  }
+                  case HandshakeKind::Error: {
+                    // Disconnecting
+                    break;
+                  }
+                  }
+                }
+                case AcceptClientStatus::NoPendingConnection: {
+                  break;
+                }
+                }
+              }
+              default: {
+                // unknown error, log, disconnect
+                break;
+              }
+              }
+
             } else {
+              ProcessStreamResult result;
+              std::string message;
+              result = process_client_stream(connection->rx_buffer, message);
+
+              switch (result) {
+              case ProcessStreamResult::IncompletePacket: {
+                // What do I do here?
+              }
+              case ProcessStreamResult::InvalidProtocolError: {
+                std::string failure_msg =
+                    "Packet sent with invalid protocol, Disconnecting " +
+                    session->username;
+                print_message(failure_msg, PrintKind::Error);
+              }
+              case ProcessStreamResult::DisconnectClient: {
+                client_manager_.disconnect(connection);
+              }
+              case ProcessStreamResult::SendPong: {
+                client_manager_.pong(connection);
+              }
+              case ProcessStreamResult::PrintMessage: {
+                auto packet =
+                    create_packet_stream(PacketType::Message, message);
+                broadcast(current_fd, packet, client_manager_);
+                print_message(message, PrintKind::Client, session->username);
+              }
+              case ProcessStreamResult::BufferEmpty: {
+                // do nothing
+              }
+              case ProcessStreamResult::ProcessComplete: {
+                // do nothing
+              }
+              }
             }
             break;
-            // Parse, broadcast, print
           }
           case ReadResult::FatalError: {
             // Error

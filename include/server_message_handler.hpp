@@ -63,6 +63,7 @@ struct HandshakeResult {
  *
  * @param session session from whom server received the data
  */
-ProcessStreamResult process_client_stream(std::vector<uint8_t> &rx_buffer);
+ProcessStreamResult process_client_stream(std::vector<uint8_t> &rx_buffer,
+                                          std::string &message);
 
 HandshakeResult process_handshake_packet(std::vector<uint8_t> &rx_buffer);

@@ -41,8 +41,6 @@ enum class AcceptClientStatus {
   NoPendingConnection
 };
 
-enum class TimeoutStatus { ClientTimedOut, Error, ClientActive };
-
 struct ClientConnection {
   int fd = -1;
   SSL *ssl = nullptr;
@@ -89,11 +87,13 @@ public:
   ClientSession *find_session(const std::string &username);
   ClientConnection *find_connection(const int &fd);
 
+  ClientSession *find_sesssion_from_connection(ClientConnection *connection);
+
   void pong(ClientConnection *connection);
 
   AcceptClientStatus accept_client(int server_fd, SSL_CTX *ssl_ctx, int kq);
 
-  TimeoutStatus check_client_timeout();
+  void check_client_timeout();
 
   void for_each_connection(
       const std::function<void(int, ClientConnection &)> &callback);
