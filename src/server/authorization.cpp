@@ -1,94 +1,11 @@
 #include "authorization.hpp"
+#include "network.hpp"
+#include "server_connection.hpp"
 #include "server_io.hpp"
-#include "server_message_handler.hpp"
+#include "sql_helper.hpp"
+#include "ui.hpp"
 #include <iostream>
-
-int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
-  int exit;
-
-  char *error_msg;
-  exit = sqlite3_exec(DB, sql_cmnd.c_str(), NULL, 0, &error_msg);
-
-  if (exit != SQLITE_OK) {
-    std::cerr << "SQL Error: " << error_msg << std::endl;
-    sqlite3_free(error_msg);
-    return -1;
-  } else {
-    return 0;
-  }
-}
-
-bool create_table() {
-  sqlite3 *DB;
-
-  int exit = sqlite3_open("database/user_pass.db", &DB);
-  if (exit != SQLITE_OK) {
-    std::cout << "UNABLE TO OPEN DATABASE" << std::endl;
-    return -1;
-  }
-
-  std::string sql = "CREATE TABLE IF NOT EXISTS users ("
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    "username TEXT UNIQUE NOT NULL,"
-                    "password_hash TEXT NOT NULL,"
-                    "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-                    ");";
-
-  if (exec_sql(sql, DB) != SQLITE_OK) {
-    return false;
-  }
-
-  sqlite3_close(DB);
-  return true;
-}
-
-int add_user(const std::string &username, const std::string &password) {
-
-  sqlite3 *DB;
-
-  int exit = sqlite3_open("user_pass.db", &DB);
-
-  if (exit != SQLITE_OK) {
-    std::string error_msg = "[SERVER] : UNABLE TO OPEN DATABASE";
-    print_message(error_msg, PrintKind::System);
-    return 0;
-  }
-
-  std::string hashed_pass = bcrypt::generateHash(password);
-
-  std::string sql =
-      "INSERT INTO users (username, password_hash) VALUES (?, ?);";
-  sqlite3_stmt *stmt;
-  bool success = false;
-
-  if (sqlite3_prepare_v2(DB, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-    sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, hashed_pass.c_str(), -1, SQLITE_TRANSIENT);
-
-    int step_res = sqlite3_step(stmt);
-
-    if (step_res == SQLITE_DONE) {
-      sqlite3_int64 new_id = sqlite3_last_insert_rowid(DB);
-      std::string ack_msg = "Added " + username;
-      print_message(ack_msg, PrintKind::Server);
-      success = true;
-    } else if (step_res == SQLITE_CONSTRAINT ||
-               step_res == SQLITE_CONSTRAINT_UNIQUE) {
-      std::string error_msg = "The name " + username + " already exists!";
-      print_message(error_msg, PrintKind::Server);
-      success = false;
-
-    } else {
-      std::string error_msg = "Execution failed";
-      print_message(error_msg, PrintKind::Server);
-      success = false;
-    }
-  }
-
-  sqlite3_finalize(stmt);
-  sqlite3_close(DB);
-  return success;
-}
+#include <string>
 
 bool verify_user(const std::string &username, const std::string &password) {
   sqlite3 *DB;
@@ -124,4 +41,62 @@ bool verify_user(const std::string &username, const std::string &password) {
   sqlite3_close(DB);
 
   return bcrypt::validatePassword(password, result);
+}
+
+bool verify_session(const std::string &username, const std::string &token,
+                    const std::map<std::string, ClientSession> &sessions_) {
+  for (auto &[name, session] : sessions_) {
+    if (name == username && session.token == token) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+RegisterClientStatus add_client(const std::string &username,
+                                const std::string &password) {
+
+  sqlite3 *DB;
+
+  int exit = sqlite3_open("user_pass.db", &DB);
+
+  if (exit != SQLITE_OK) {
+    sqlite3_close(DB);
+    return RegisterClientStatus::UnableToOpenDatabase;
+  }
+
+  std::string hashed_pass = bcrypt::generateHash(password);
+
+  std::string sql =
+      "INSERT INTO users (username, password_hash) VALUES (?, ?);";
+  sqlite3_stmt *stmt;
+  bool success = false;
+
+  if (sqlite3_prepare_v2(DB, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, hashed_pass.c_str(), -1, SQLITE_TRANSIENT);
+
+    int step_res = sqlite3_step(stmt);
+
+    if (step_res == SQLITE_DONE) {
+      sqlite3_int64 new_id = sqlite3_last_insert_rowid(DB);
+
+      sqlite3_finalize(stmt);
+      sqlite3_close(DB);
+      return RegisterClientStatus::ClientRegistered;
+    } else if (step_res == SQLITE_CONSTRAINT ||
+               step_res == SQLITE_CONSTRAINT_UNIQUE) {
+
+      sqlite3_finalize(stmt);
+      sqlite3_close(DB);
+      return RegisterClientStatus::UsernameExists;
+      success = false;
+    } else {
+      sqlite3_finalize(stmt);
+      sqlite3_close(DB);
+      return RegisterClientStatus::ExecFailed;
+    }
+  }
+  return RegisterClientStatus::UnknownError;
 }

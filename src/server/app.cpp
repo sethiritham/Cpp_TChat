@@ -1,3 +1,4 @@
+#include "authorization.hpp"
 #include "network.hpp"
 #include "protocol.hpp"
 #include "server_connection.hpp"
@@ -174,8 +175,6 @@ public:
         else if (p_event_list[i].filter == EVFILT_READ) {
           ClientConnection *connection =
               client_manager_.find_connection(current_fd);
-          ClientSession *session =
-              client_manager_.find_sesssion_from_connection(connection);
 
           ReadResult result = handle_read(connection);
 
@@ -214,15 +213,45 @@ public:
                 case AcceptClientStatus::AcceptedClient: {
                   switch (result.request.kind) {
                   case HandshakeKind::Login: {
-                    // call login
+                    if (verify_client(result.request.username,
+                                      result.request.password)) {
+                      // successfull auth
+                    } else {
+                      // wrong pass, disconnect
+                    }
                     break;
                   }
                   case HandshakeKind::Reconnect: {
-                    // call reconnect
+                    if (verify_client_session(result.request.username,
+                                              result.request.token)) {
+                      // call reconnect
+                    } else {
+                      // do nothing
+                    }
                     break;
                   }
                   case HandshakeKind::Register: {
-                    // call Register
+                    RegisterClientStatus status;
+                    status = register_client(result.request.username,
+                                             result.request.password);
+
+                    switch (status) {
+                    case RegisterClientStatus::ExecFailed: {
+                      // log error, disconnect
+                    }
+                    case RegisterClientStatus::ClientRegistered: {
+                      // Ack
+                    }
+                    case RegisterClientStatus::UnableToOpenDatabase: {
+                      // log error, disconnect
+                    }
+                    case RegisterClientStatus::UsernameExists: {
+                      // log error, disconnect
+                    }
+                    default: {
+                      // unknown error, disconnect
+                    }
+                    }
                     break;
                   }
                   case HandshakeKind::Error: {
@@ -237,12 +266,19 @@ public:
                 }
               }
               default: {
-                // unknown error, log, disconnect
+                std::string faliure_msg =
+                    "Client unable to connnect due to an unknown error!";
+                print_message(faliure_msg, PrintKind::Error);
+                client_manager_.disconnect(connection);
                 break;
               }
               }
 
             } else {
+
+              ClientSession *session =
+                  client_manager_.find_sesssion_from_connection(connection);
+
               ProcessStreamResult result;
               std::string message;
               result = process_client_stream(connection->rx_buffer, message);
@@ -250,6 +286,7 @@ public:
               switch (result) {
               case ProcessStreamResult::IncompletePacket: {
                 // What do I do here?
+                break;
               }
               case ProcessStreamResult::InvalidProtocolError: {
                 std::string failure_msg =
@@ -270,10 +307,10 @@ public:
                 print_message(message, PrintKind::Client, session->username);
               }
               case ProcessStreamResult::BufferEmpty: {
-                // do nothing
+                break;
               }
               case ProcessStreamResult::ProcessComplete: {
-                // do nothing
+                break;
               }
               }
             }
