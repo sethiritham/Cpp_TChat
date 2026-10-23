@@ -7,7 +7,8 @@
 #include <iostream>
 #include <string>
 
-bool verify_user(const std::string &username, const std::string &password) {
+VerifyClientStatus verify_client(const std::string &username,
+                                 const std::string &password) {
   sqlite3 *DB;
 
   sqlite3_open("user_pass.db", &DB);
@@ -16,10 +17,7 @@ bool verify_user(const std::string &username, const std::string &password) {
 
   sqlite3_stmt *stmt;
   if (sqlite3_prepare_v2(DB, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-    std::string error_msg =
-        "Failed to prepare statement: " + std::string(sqlite3_errmsg(DB));
-    print_message(error_msg, PrintKind::Server);
-    return false;
+    return VerifyClientStatus::ExecFailed;
   }
 
   sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_STATIC);
@@ -31,16 +29,16 @@ bool verify_user(const std::string &username, const std::string &password) {
       result = reinterpret_cast<const char *>(text);
     }
   } else {
-    std::string error_msg = "User not found or column is empty.\n";
-    print_message(error_msg, PrintKind::Server);
     sqlite3_close(DB);
-    return false;
+    return VerifyClientStatus::UserNotFound;
   }
 
   sqlite3_finalize(stmt);
   sqlite3_close(DB);
 
-  return bcrypt::validatePassword(password, result);
+  return (bcrypt::validatePassword(password, result))
+             ? VerifyClientStatus::Authorized
+             : VerifyClientStatus::NotAuthorized;
 }
 
 bool verify_session(const std::string &username, const std::string &token,

@@ -26,45 +26,68 @@ void ClientManager::disable_write_event(int kq, int fd) {
   }
 }
 
-AcceptClientStatus ClientManager::accept_client(int fd, SSL_CTX *ssl_ctx,
+AcceptClientStatus ClientManager::accept_client(int server_fd, SSL_CTX *ssl_ctx,
                                                 int kq) {
-  ClientConnection *connection = find_connection(fd);
-  set_blocking(fd);
+  if (ssl_ctx == nullptr) {
+    return AcceptClientStatus::FailedHandshake;
+  }
+
+  sockaddr_in client_addr{};
+  socklen_t len = sizeof(client_addr);
+
+  int client_fd =
+      accept(server_fd, reinterpret_cast<sockaddr *>(&client_addr), &len);
+
+  if (client_fd < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return AcceptClientStatus::NoPendingConnection;
+    }
+
+    perror("accept");
+    return AcceptClientStatus::FailedHandshake;
+  }
+
+  set_blocking(client_fd);
 
   SSL *ssl = SSL_new(ssl_ctx);
-  SSL_set_fd(ssl, fd);
 
-  if (SSL_accept(ssl) <= 0) {
+  if (ssl == nullptr) {
+    close(client_fd);
     return AcceptClientStatus::FailedHandshake;
   }
 
-  connections_[fd] = ClientConnection(fd, ssl);
-
-  HandshakeResult result = process_handshake_packet(connections_[fd].rx_buffer);
-
-  // manage invalid statuses
-  switch (result.status) {
-  case HandshakeStreamStatus::InvalidProtocolError: {
-    auto error_packet = create_packet_stream(PacketType::Error,
-                                             "[SERVER]: Invalid Protocol key");
-    queue_write(fd, error_packet, connection->tx_queue);
-
+  if (SSL_set_fd(ssl, client_fd) != 1) {
+    SSL_free(ssl);
+    close(client_fd);
     return AcceptClientStatus::FailedHandshake;
   }
-  case HandshakeStreamStatus::IncompletePacket: {
-    auto error_packet = create_packet_stream(
-        PacketType::Error, "[SERVER] : Incomplete auth packet");
-    queue_write(fd, error_packet, connection->tx_queue);
 
+  if (SSL_accept(ssl) != 1) {
+    ERR_print_errors_fp(stderr);
+    SSL_free(ssl);
+    close(client_fd);
     return AcceptClientStatus::FailedHandshake;
   }
-  case HandshakeStreamStatus::InvalidAuthPacket: {
-    auto error_packet = create_packet_stream(PacketType::Error,
-                                             "[SERVER] : Invalid auth packet");
+
+  set_nonblocking(client_fd);
+
+  auto [it, inserted] = connections_.try_emplace(client_fd, client_fd, ssl);
+
+  if (!inserted) {
+    SSL_free(ssl);
+    close(client_fd);
     return AcceptClientStatus::FailedHandshake;
   }
-  default:
-    break;
+
+  struct kevent ev{};
+  EV_SET(&ev, client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+
+  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) == -1) {
+    it->second.ssl = nullptr;
+    SSL_free(ssl);
+    close(client_fd);
+    connections_.erase(it);
+    return AcceptClientStatus::FailedHandshake;
   }
 
   return AcceptClientStatus::AcceptedClient;
@@ -168,4 +191,11 @@ ClientManager::find_sesssion_from_connection(ClientConnection *connection) {
   }
 
   return nullptr;
+}
+
+void ClientManager::reconnect_client(std::string username,
+                                     ClientConnection *connection) {
+
+  sessions_[username].connection = connection;
+  sessions_[username].state = SessionState::Reconnected;
 }

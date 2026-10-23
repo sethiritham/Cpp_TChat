@@ -54,6 +54,8 @@ struct ClientConnection {
 
   ConnectionStatus status = ConnectionStatus::AwaitingAuth;
 
+  bool read_waiting_for_write = false;
+
   ClientConnection(int fd, SSL *ssl) : fd(fd), ssl(ssl) {}
 };
 
@@ -74,10 +76,6 @@ private:
   std::map<std::string, ClientSession> sessions_;
 
 private:
-  void enable_write_event(int kq, int fd);
-
-  void disable_write_event(int kq, int fd);
-
   bool authorize_client(const std::vector<uint8_t> &auth_packet);
 
 public:
@@ -89,9 +87,14 @@ public:
 
   ClientSession *find_sesssion_from_connection(ClientConnection *connection);
 
+  void enable_write_event(int kq, int fd);
+  void disable_write_event(int kq, int fd);
+
   void pong(ClientConnection *connection);
 
   AcceptClientStatus accept_client(int server_fd, SSL_CTX *ssl_ctx, int kq);
+
+  void reconnect_client(std::string username, ClientConnection *connection);
 
   void check_client_timeout();
 

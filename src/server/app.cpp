@@ -69,6 +69,248 @@ private:
     return ctx;
   }
 
+  void handle_login_case(VerifyClientStatus status,
+                         ClientConnection *connection) {
+
+    switch (status) {
+    case VerifyClientStatus::Authorized: {
+      connection->status = ConnectionStatus::Authenticated;
+      auto auth_packet = create_packet_stream(PacketType::Login, "OK");
+      queue_write(connection->fd, auth_packet, connection->tx_queue);
+      break;
+    }
+    case VerifyClientStatus::NotAuthorized: {
+      auto error_packet = create_packet_stream(PacketType::Login, "NO");
+      queue_write(connection->fd, error_packet, connection->tx_queue);
+      client_manager_.disconnect(connection);
+      break;
+    }
+    case VerifyClientStatus::UserNotFound: {
+      auto error_packet = create_packet_stream(PacketType::Login, "NO");
+      queue_write(connection->fd, error_packet, connection->tx_queue);
+      client_manager_.disconnect(connection);
+      break;
+    }
+    case VerifyClientStatus::ExecFailed: {
+      auto error_packet = create_packet_stream(PacketType::Login, "NO");
+      queue_write(connection->fd, error_packet, connection->tx_queue);
+      client_manager_.disconnect(connection);
+      break;
+    }
+    }
+  }
+
+  void handle_register_client_status(RegisterClientStatus status,
+                                     ClientConnection *connection) {
+
+    switch (status) {
+    case RegisterClientStatus::ExecFailed: {
+      client_manager_.disconnect(connection);
+      break;
+    }
+    case RegisterClientStatus::ClientRegistered: {
+      auto ack_packet = create_packet_stream(PacketType::Register, "OK");
+      queue_write(connection->fd, ack_packet, connection->tx_queue);
+      break;
+    }
+    case RegisterClientStatus::UnableToOpenDatabase: {
+      client_manager_.disconnect(connection);
+      // log error, disconnect
+      break;
+    }
+    case RegisterClientStatus::UsernameExists: {
+      client_manager_.disconnect(connection);
+      // log error, disconnect
+      break;
+    }
+    default: {
+      client_manager_.disconnect(connection);
+      // unknown error, disconnect
+      break;
+    }
+    }
+  }
+
+  void handle_handshake_client(HandshakeResult result,
+                               ClientConnection *connection) {
+
+    switch (result.request.kind) {
+    case HandshakeKind::Login: {
+      VerifyClientStatus status =
+          verify_client(result.request.username, result.request.password);
+
+      handle_login_case(status, connection);
+
+      break;
+    }
+    case HandshakeKind::Reconnect: {
+      if (verify_client_session(result.request.username,
+                                result.request.token)) {
+        client_manager_.reconnect_client(result.request.username, connection);
+      } else {
+        // log reconnect faliure?
+        client_manager_.disconnect(connection);
+      }
+      break;
+    }
+    case HandshakeKind::Register: {
+      RegisterClientStatus status;
+      status =
+          register_client(result.request.username, result.request.password);
+
+      handle_register_client_status(status, connection);
+
+      break;
+    }
+    case HandshakeKind::Error: {
+      client_manager_.disconnect(connection);
+      break;
+    }
+    }
+  }
+
+  void handle_accept_client_status(AcceptClientStatus status) {
+
+    switch (status) {
+    case AcceptClientStatus::FailedHandshake: {
+      std::string faliure_msg = "TLS Handshake failed, unable to "
+                                "accept the client, disconnecting";
+      print_message(faliure_msg, PrintKind::Error);
+      break;
+    }
+    case AcceptClientStatus::AcceptedClient: {
+      std::string success_msg = "Handshake sucessfull, Client connected!";
+      print_message(success_msg, PrintKind::Server);
+      break;
+    }
+    case AcceptClientStatus::NoPendingConnection: {
+      break;
+    }
+    }
+  }
+
+  void handle_handshake_stream_status(HandshakeResult handshake_result,
+                                      ClientConnection *connection) {
+
+    HandshakeStreamStatus status = handshake_result.status;
+    switch (status) {
+    case HandshakeStreamStatus::IncompletePacket: {
+      break;
+    }
+    case HandshakeStreamStatus::InvalidProtocolError: {
+      std::string faliure_msg =
+          "Auth packet sent with the wrong protocol, authentication "
+          "failed, disconnecting";
+      print_message(faliure_msg, PrintKind::Error);
+      client_manager_.disconnect(connection);
+      break;
+    }
+    case HandshakeStreamStatus::InvalidAuthPacket: {
+      std::string faliure_msg = "Invalid auth packet sent, authentication "
+                                "failed, disconnecting";
+      print_message(faliure_msg, PrintKind::Error);
+      client_manager_.disconnect(connection);
+      break;
+    }
+    case HandshakeStreamStatus::ValidAuthPacket: {
+      handle_handshake_client(handshake_result, connection);
+      client_manager_.disconnect(connection);
+      break;
+    }
+    default: {
+      std::string faliure_msg =
+          "Client unable to connnect due to an unknown error!";
+      print_message(faliure_msg, PrintKind::Error);
+      client_manager_.disconnect(connection);
+      break;
+    }
+    }
+  }
+
+  void handle_process_stream_result(const ProcessStreamResult &result,
+                                    ClientSession *session,
+                                    std::string message) {
+
+    switch (result) {
+    case ProcessStreamResult::IncompletePacket: {
+      return;
+    }
+    case ProcessStreamResult::InvalidProtocolError: {
+      std::string failure_msg =
+          "Packet sent with invalid protocol, Disconnecting " +
+          session->username;
+      print_message(failure_msg, PrintKind::Error);
+      return;
+    }
+    case ProcessStreamResult::DisconnectClient: {
+      client_manager_.disconnect(session->connection);
+      return;
+    }
+    case ProcessStreamResult::SendPong: {
+      client_manager_.pong(session->connection);
+      return;
+    }
+    case ProcessStreamResult::PrintMessage: {
+      auto packet = create_packet_stream(PacketType::Message, message);
+      broadcast(session->connection->fd, packet, client_manager_);
+      print_message(message, PrintKind::Client, session->username);
+      return;
+    }
+    case ProcessStreamResult::BufferEmpty: {
+    }
+    case ProcessStreamResult::ProcessComplete: {
+      return;
+    }
+    }
+  }
+
+  void handle_read_result(ClientConnection *connection, ReadResult result) {
+
+    switch (result) {
+    case ReadResult::DataReceived: {
+      if (connection->status == ConnectionStatus::AwaitingAuth) {
+        HandshakeResult handshake_result;
+        handshake_result = process_handshake_packet(connection->rx_buffer);
+
+        handle_handshake_stream_status(handshake_result, connection);
+
+      } else {
+
+        ClientSession *session =
+            client_manager_.find_sesssion_from_connection(connection);
+
+        ProcessStreamResult result;
+        std::string message;
+        result = process_client_stream(connection->rx_buffer, message);
+
+        handle_process_stream_result(result, session, message);
+      }
+      break;
+    }
+    case ReadResult::FatalError: {
+      std::string error_msg = "Connection read failed!.";
+      print_message(error_msg, PrintKind::Error);
+      client_manager_.disconnect(connection);
+      return;
+    }
+    case ReadResult::WantRead: {
+      break;
+    }
+    case ReadResult::WantWrite: {
+      connection->read_waiting_for_write = true;
+      client_manager_.enable_write_event(p_kq, connection->fd);
+
+      break;
+    }
+    }
+  }
+
+  void read_event(ClientConnection *connection) {
+    ReadResult result = handle_read(connection);
+
+    handle_read_result(connection, result);
+  }
+
 public:
   int initialize() {
     signal(SIGPIPE, SIG_IGN);
@@ -156,176 +398,15 @@ public:
           AcceptClientStatus status =
               client_manager_.accept_client(listening_fd_, ssl_ctx_, p_kq);
 
-          switch (status) {
-          case AcceptClientStatus::AcceptedClient: {
-            // Log success
-            break;
-          }
-          case AcceptClientStatus::FailedHandshake: {
-            // Log faliure
-            // Close the connection, free the SSL pointer the entire shabang
-            break;
-          }
-          default:
-            // No pending connection, continue with normal read
-            break;
-          }
+          handle_accept_client_status(status);
+
         }
 
         else if (p_event_list[i].filter == EVFILT_READ) {
           ClientConnection *connection =
               client_manager_.find_connection(current_fd);
 
-          ReadResult result = handle_read(connection);
-
-          switch (result) {
-          case ReadResult::DataReceived: {
-            if (connection->status == ConnectionStatus::AwaitingAuth) {
-              HandshakeResult result;
-              result = process_handshake_packet(connection->rx_buffer);
-
-              switch (result.status) {
-              case HandshakeStreamStatus::IncompletePacket: {
-                break;
-              }
-              case HandshakeStreamStatus::InvalidProtocolError: {
-                std::string faliure_msg =
-                    "Auth packet sent with the wrong protocol, authentication "
-                    "failed, disconnecting";
-                print_message(faliure_msg, PrintKind::Error);
-              }
-              case HandshakeStreamStatus::InvalidAuthPacket: {
-                std::string faliure_msg =
-                    "Invalid auth packet sent, authentication "
-                    "failed, disconnecting";
-                print_message(faliure_msg, PrintKind::Error);
-              }
-              case HandshakeStreamStatus::ValidAuthPacket: {
-                AcceptClientStatus status = client_manager_.accept_client(
-                    listening_fd_, ssl_ctx_, p_kq);
-
-                switch (status) {
-                case AcceptClientStatus::FailedHandshake: {
-                  std::string faliure_msg = "TLS Handshake failed, unable to "
-                                            "accept the client, disconnecting";
-                  print_message(faliure_msg, PrintKind::Error);
-                }
-                case AcceptClientStatus::AcceptedClient: {
-                  switch (result.request.kind) {
-                  case HandshakeKind::Login: {
-                    if (verify_client(result.request.username,
-                                      result.request.password)) {
-                      // successfull auth
-                    } else {
-                      // wrong pass, disconnect
-                    }
-                    break;
-                  }
-                  case HandshakeKind::Reconnect: {
-                    if (verify_client_session(result.request.username,
-                                              result.request.token)) {
-                      // call reconnect
-                    } else {
-                      // do nothing
-                    }
-                    break;
-                  }
-                  case HandshakeKind::Register: {
-                    RegisterClientStatus status;
-                    status = register_client(result.request.username,
-                                             result.request.password);
-
-                    switch (status) {
-                    case RegisterClientStatus::ExecFailed: {
-                      // log error, disconnect
-                    }
-                    case RegisterClientStatus::ClientRegistered: {
-                      // Ack
-                    }
-                    case RegisterClientStatus::UnableToOpenDatabase: {
-                      // log error, disconnect
-                    }
-                    case RegisterClientStatus::UsernameExists: {
-                      // log error, disconnect
-                    }
-                    default: {
-                      // unknown error, disconnect
-                    }
-                    }
-                    break;
-                  }
-                  case HandshakeKind::Error: {
-                    // Disconnecting
-                    break;
-                  }
-                  }
-                }
-                case AcceptClientStatus::NoPendingConnection: {
-                  break;
-                }
-                }
-              }
-              default: {
-                std::string faliure_msg =
-                    "Client unable to connnect due to an unknown error!";
-                print_message(faliure_msg, PrintKind::Error);
-                client_manager_.disconnect(connection);
-                break;
-              }
-              }
-
-            } else {
-
-              ClientSession *session =
-                  client_manager_.find_sesssion_from_connection(connection);
-
-              ProcessStreamResult result;
-              std::string message;
-              result = process_client_stream(connection->rx_buffer, message);
-
-              switch (result) {
-              case ProcessStreamResult::IncompletePacket: {
-                // What do I do here?
-                break;
-              }
-              case ProcessStreamResult::InvalidProtocolError: {
-                std::string failure_msg =
-                    "Packet sent with invalid protocol, Disconnecting " +
-                    session->username;
-                print_message(failure_msg, PrintKind::Error);
-              }
-              case ProcessStreamResult::DisconnectClient: {
-                client_manager_.disconnect(connection);
-              }
-              case ProcessStreamResult::SendPong: {
-                client_manager_.pong(connection);
-              }
-              case ProcessStreamResult::PrintMessage: {
-                auto packet =
-                    create_packet_stream(PacketType::Message, message);
-                broadcast(current_fd, packet, client_manager_);
-                print_message(message, PrintKind::Client, session->username);
-              }
-              case ProcessStreamResult::BufferEmpty: {
-                break;
-              }
-              case ProcessStreamResult::ProcessComplete: {
-                break;
-              }
-              }
-            }
-            break;
-          }
-          case ReadResult::FatalError: {
-            // Error
-          }
-          case ReadResult::WantRead: {
-            // enable read event
-          }
-          case ReadResult::WantWrite: {
-            // enable write event
-          }
-          }
+          read_event(connection);
         }
       }
     }

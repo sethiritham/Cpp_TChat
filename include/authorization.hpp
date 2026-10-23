@@ -10,7 +10,15 @@ enum class RegisterClientStatus {
   UnknownError
 };
 
-bool verify_client(const std::string &username, const std::string &password);
+enum class VerifyClientStatus {
+  ExecFailed,
+  UserNotFound,
+  NotAuthorized,
+  Authorized
+};
+
+VerifyClientStatus verify_client(const std::string &username,
+                                 const std::string &password);
 
 RegisterClientStatus register_client(const std::string &name,
                                      const std::string &pass);
