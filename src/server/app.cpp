@@ -4,6 +4,7 @@
 #include "server_connection.hpp"
 #include "server_io.hpp"
 #include "server_message_handler.hpp"
+#include "sql_helper.hpp"
 #include "ui.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
@@ -30,6 +31,7 @@ public:
   SSL_CTX *ssl_ctx_;
 
   ClientManager client_manager_;
+  std::string console_input_buffer_;
 
 private:
   bool p_running;
@@ -306,9 +308,121 @@ private:
   }
 
   void read_event(ClientConnection *connection) {
-    ReadResult result = handle_read(connection);
+    if (connection == nullptr) {
+      return;
+    }
 
+    if (connection->read_waiting_for_write &&
+        connection->write_waiting_for_read) {
+      // Invalid state: clean up or report the internal error.
+      return;
+    }
+
+    if (connection->read_waiting_for_write) {
+      return;
+    }
+
+    if (connection->write_waiting_for_read) {
+      connection->write_waiting_for_read = false;
+
+      FlushResult result = flush_write(connection);
+      handle_flush_result(result, connection);
+      return;
+    }
+
+    ReadResult result = handle_read(connection);
     handle_read_result(connection, result);
+  }
+
+  void write_event(ClientConnection *connection) {
+    if (connection == nullptr) {
+      return;
+    }
+
+    if (connection->read_waiting_for_write &&
+        connection->write_waiting_for_read) {
+      // Invalid state: clean up or report the internal error.
+      return;
+    }
+
+    if (connection->write_waiting_for_read) {
+      return;
+    }
+
+    if (connection->read_waiting_for_write) {
+      connection->read_waiting_for_write = false;
+
+      ReadResult result = handle_read(connection);
+      handle_read_result(connection, result);
+      return;
+    }
+
+    FlushResult result = flush_write(connection);
+    handle_flush_result(result, connection);
+  }
+
+  void handle_kick_status(KickStatus status, const std::string &username) {
+    switch (status) {
+    case KickStatus::ClientNotFound: {
+      std::string err_msg = "Client: " + username + " not found!";
+      print_message(err_msg, PrintKind::Error);
+      return;
+    }
+    case KickStatus::Kicked: {
+      std::string kick_msg = "Kicked client " + username;
+      print_message(kick_msg, PrintKind::Server);
+      return;
+    }
+    }
+  }
+
+  void handle_console_input_result(ConsoleInputResult result) {
+    switch (result.status) {
+    case ConsoleInputStatus::Message: {
+      auto broad_pkt = create_packet_stream(PacketType::Message, result.buffer);
+      broadcast(-1, broad_pkt, client_manager_);
+      print_message(result.buffer, PrintKind::Self);
+      return;
+    }
+    case ConsoleInputStatus::InvalidCommand: {
+      std::string err_msg = "Invalid Command! : <" + result.buffer + ">";
+      print_message(err_msg, PrintKind::Error);
+      return;
+    }
+    case ConsoleInputStatus::KickClient: {
+      KickStatus status = client_manager_.kick(result.buffer);
+      handle_kick_status(status, result.buffer);
+      return;
+    }
+    case ConsoleInputStatus::Quit: {
+      std::string quit_msg = "Quitting...";
+      print_message(quit_msg, PrintKind::System);
+      p_running = false;
+      return;
+    }
+    case ConsoleInputStatus::NoInput: {
+      return;
+    }
+    }
+  }
+
+  void handle_flush_result(FlushResult result, ClientConnection *connection) {
+    switch (result) {
+    case FlushResult::FatalError: {
+      client_manager_.disconnect(connection);
+      return;
+    }
+    case FlushResult::QueueEmpty: {
+      return;
+    }
+    case FlushResult::ReadWait: {
+      connection->write_waiting_for_read = true;
+      return;
+    }
+    case FlushResult::WriteWait: {
+      return;
+    }
+    }
   }
 
 public:
@@ -335,8 +449,9 @@ public:
 
     ssl_ctx_ = init_server_ssl_context();
 
-    // setupNcurses();
-    // safePrint("Waiting for clients to join", true);
+    setupNcurses();
+    std::string msg = "Waiting for clients to join";
+    print_message(msg, PrintKind::Server);
 
     set_nonblocking(this->listening_fd_);
     set_nonblocking(STDIN_FILENO);
@@ -355,11 +470,12 @@ public:
            NOTE_SECONDS, 5, nullptr);
     kevent(p_kq, &timer_ev, 1, nullptr, 0, nullptr);
 
-    // safePrint("[SERVER] active on PORT: 8080", true);
+    msg = "[SERVER] active on PORT: 8080";
+    print_message(msg, PrintKind::Server);
 
     p_event_list.reserve(32);
 
-    // create database
+    create_table();
 
     std::string input_buffer;
     p_running = true;
@@ -382,14 +498,14 @@ public:
 
         if (p_event_list[i].filter == EVFILT_TIMER &&
             current_fd == SERVER_TIMER_IDENT) {
-          // check_client_connection();
           // Incase client is inactive for more than 10 sec, disconnect the
           // client
         }
 
-        if (current_fd == STDIN_FILENO) {
-          // handle keyboard read event
-          // write
+        if (current_fd == STDIN_FILENO &&
+            p_event_list[i].filter == EVFILT_READ) {
+          ConsoleInputResult result = read_console_input(console_input_buffer_);
+          handle_console_input_result(result);
         }
 
         else if (p_event_list[i].filter == EVFILT_READ &&
@@ -407,6 +523,13 @@ public:
               client_manager_.find_connection(current_fd);
 
           read_event(connection);
+        }
+
+        else if (p_event_list[i].filter == EVFILT_WRITE) {
+          ClientConnection *connection =
+              client_manager_.find_connection(current_fd);
+
+          write_event(connection);
         }
       }
     }

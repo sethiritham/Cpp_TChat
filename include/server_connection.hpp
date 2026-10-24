@@ -7,12 +7,12 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <fcntl.h>
 #include <map>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#include <queue>
 #include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -55,6 +55,7 @@ struct ClientConnection {
   ConnectionStatus status = ConnectionStatus::AwaitingAuth;
 
   bool read_waiting_for_write = false;
+  bool write_waiting_for_read = false;
 
   ClientConnection(int fd, SSL *ssl) : fd(fd), ssl(ssl) {}
 };

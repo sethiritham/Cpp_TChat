@@ -1,4 +1,3 @@
-#include "queue"
 #include "server_app.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
@@ -7,21 +6,39 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <string>
 #include <sys/event.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
 
 struct ClientConnection;
+
 class ClientManager;
 
 enum class FlushResult { QueueEmpty, WriteWait, ReadWait, FatalError };
 
 enum class ReadResult { DataReceived, WantRead, WantWrite, FatalError };
+
+enum class ConsoleInputStatus {
+  NoInput,
+  Message,
+  KickClient,
+  Quit,
+  InvalidCommand
+};
+
+struct ConsoleInputResult {
+  ConsoleInputStatus status = ConsoleInputStatus::NoInput;
+  std::string buffer;
+};
+
+ConsoleInputResult read_console_input(std::string &input_buffer);
 
 void queue_write(int fd, const std::vector<uint8_t> &data,
                  std::deque<std::vector<uint8_t>> &tx_queue);

@@ -2,7 +2,6 @@
 #include "protocol.hpp"
 #include "server_connection.hpp"
 #include "server_io.hpp"
-#include "server_message_handler.hpp"
 #include <string>
 #include <vector>
 
