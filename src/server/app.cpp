@@ -361,6 +361,12 @@ private:
     handle_flush_result(result, connection);
   }
 
+  void console_write_event() {
+
+    ConsoleInputResult result = read_console_input(console_input_buffer_);
+    handle_console_input_result(result);
+  }
+
   void handle_kick_status(KickStatus status, const std::string &username) {
     switch (status) {
     case KickStatus::ClientNotFound: {
@@ -423,6 +429,25 @@ private:
       return;
     }
     }
+  }
+
+  void client_connection_event() {
+
+    AcceptClientStatus status =
+        client_manager_.accept_client(listening_fd_, ssl_ctx_, p_kq);
+
+    handle_accept_client_status(status);
+  }
+
+  void timer_event() {
+
+    client_manager_.mark_timed_out_connections();
+
+    client_manager_.remove_timed_out_connections();
+
+    client_manager_.mark_expired_sessions();
+
+    client_manager_.remove_expired_sessions();
   }
 
 public:
@@ -498,24 +523,20 @@ public:
 
         if (p_event_list[i].filter == EVFILT_TIMER &&
             current_fd == SERVER_TIMER_IDENT) {
-          // Incase client is inactive for more than 10 sec, disconnect the
-          // client
+
+          timer_event();
+
+          continue;
         }
 
         if (current_fd == STDIN_FILENO &&
             p_event_list[i].filter == EVFILT_READ) {
-          ConsoleInputResult result = read_console_input(console_input_buffer_);
-          handle_console_input_result(result);
+          console_write_event();
         }
 
         else if (p_event_list[i].filter == EVFILT_READ &&
                  current_fd == listening_fd_) {
-
-          AcceptClientStatus status =
-              client_manager_.accept_client(listening_fd_, ssl_ctx_, p_kq);
-
-          handle_accept_client_status(status);
-
+          client_connection_event();
         }
 
         else if (p_event_list[i].filter == EVFILT_READ) {

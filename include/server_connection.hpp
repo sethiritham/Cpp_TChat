@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -41,7 +42,16 @@ enum class AcceptClientStatus {
   NoPendingConnection
 };
 
+enum class RemoveSessionStatus {
+  Removed,
+  SessionNotFound,
+  SessionStillConnected,
+  InvalidState
+};
+
 struct ClientConnection {
+  using Clock = std::chrono::steady_clock;
+
   int fd = -1;
   SSL *ssl = nullptr;
 
@@ -50,7 +60,7 @@ struct ClientConnection {
 
   int tx_offset = 0;
 
-  time_t last_seen = time(nullptr);
+  Clock::time_point last_seen = Clock::now();
 
   ConnectionStatus status = ConnectionStatus::AwaitingAuth;
 
@@ -61,12 +71,15 @@ struct ClientConnection {
 };
 
 struct ClientSession {
+
+  using Clock = std::chrono::steady_clock;
+
   std::string username;
   std::string token;
 
   ClientConnection *connection;
 
-  time_t disconnected_at = time(nullptr);
+  Clock::time_point disconnected_at = Clock::now();
 
   SessionState state = SessionState::Connected;
 };
@@ -88,12 +101,22 @@ public:
 
   ClientSession *find_sesssion_from_connection(ClientConnection *connection);
 
+  RemoveSessionStatus remove_session(const std::string &username);
+
   void enable_write_event(int kq, int fd);
   void disable_write_event(int kq, int fd);
 
   void pong(ClientConnection *connection);
 
   AcceptClientStatus accept_client(int server_fd, SSL_CTX *ssl_ctx, int kq);
+
+  void mark_timed_out_connections();
+
+  void remove_timed_out_connections();
+
+  void mark_expired_sessions();
+
+  void remove_expired_sessions();
 
   void reconnect_client(std::string username, ClientConnection *connection);
 

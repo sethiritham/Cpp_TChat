@@ -2,6 +2,8 @@
 #include "protocol.hpp"
 #include "server_connection.hpp"
 #include "server_io.hpp"
+#include <chrono>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -109,7 +111,7 @@ DisconnectStatus ClientManager::disconnect(ClientConnection *connection) {
 
       if (session.state == SessionState::Connected) {
         session.state = SessionState::Disconnected;
-        session.disconnected_at = time(nullptr);
+        session.disconnected_at = ClientSession::Clock::now();
       }
 
       break;
@@ -130,6 +132,33 @@ DisconnectStatus ClientManager::disconnect(ClientConnection *connection) {
   connections_.erase(it);
 
   return DisconnectStatus::Disconnected;
+}
+
+RemoveSessionStatus ClientManager::remove_session(const std::string &username) {
+
+  ClientSession *session = find_session(username);
+
+  if (!session)
+    return RemoveSessionStatus::SessionNotFound;
+
+  if (session->connection != nullptr) {
+    return RemoveSessionStatus::SessionStillConnected;
+  }
+
+  switch (session->state) {
+  case SessionState::Disconnected:
+  case SessionState::Kicked:
+  case SessionState::Expired:
+    break;
+
+  case SessionState::Connected:
+  case SessionState::Reconnected:
+    return RemoveSessionStatus::InvalidState;
+  }
+
+  sessions_.erase(session->username);
+
+  return RemoveSessionStatus::Removed;
 }
 
 KickStatus ClientManager::kick(const std::string &username) {
@@ -175,7 +204,7 @@ ClientConnection *ClientManager::find_connection(const int &fd) {
 }
 
 void ClientManager::pong(ClientConnection *connection) {
-  connection->last_seen = time(nullptr);
+  connection->last_seen = ClientConnection::Clock::now();
 
   std::vector<uint8_t> pong_packet = create_packet_stream(PacketType::Pong, "");
   queue_write(connection->fd, pong_packet, connection->tx_queue);
@@ -197,4 +226,59 @@ void ClientManager::reconnect_client(std::string username,
 
   sessions_[username].connection = connection;
   sessions_[username].state = SessionState::Reconnected;
+}
+
+void ClientManager::mark_timed_out_connections() {
+  using Clock = std::chrono::steady_clock;
+  std::vector<int> timed_out_fds;
+
+  for (auto &[fd, connection] : connections_) {
+    if (connection.status == ConnectionStatus::Closing)
+      continue;
+
+    if (Clock::now() - connection.last_seen >= std::chrono::seconds(10)) {
+      connection.status = ConnectionStatus::Closing;
+    }
+  }
+}
+
+void ClientManager::remove_timed_out_connections() {
+  for (auto &[fd, connection] : connections_) {
+    if (connection.status == ConnectionStatus::Closing) {
+      disconnect(&connection);
+    }
+  }
+}
+
+void ClientManager::mark_expired_sessions() {
+  const auto now = ClientConnection::Clock::now();
+  constexpr auto grace_period = std::chrono::seconds(60);
+
+  for (auto &[username, session] : sessions_) {
+    if (session.state != SessionState::Disconnected) {
+      continue;
+    }
+
+    if (session.connection != nullptr) {
+      continue;
+    }
+
+    if (now - session.disconnected_at >= grace_period) {
+      session.state = SessionState::Expired;
+    }
+  }
+}
+
+void ClientManager::remove_expired_sessions() {
+  std::vector<std::string> expired_usernames;
+
+  for (const auto &[username, session] : sessions_) {
+    if (session.state == SessionState::Expired) {
+      expired_usernames.push_back(username);
+    }
+  }
+
+  for (const auto &username : expired_usernames) {
+    RemoveSessionStatus status = remove_session(username);
+  }
 }
