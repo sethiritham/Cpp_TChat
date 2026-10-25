@@ -224,8 +224,20 @@ ClientManager::find_sesssion_from_connection(ClientConnection *connection) {
 void ClientManager::reconnect_client(std::string username,
                                      ClientConnection *connection) {
 
-  sessions_[username].connection = connection;
-  sessions_[username].state = SessionState::Reconnected;
+  auto it = connections_.find(connection->fd);
+
+  auto sess_it = sessions_.find(username);
+
+  if (sess_it != sessions_.end() && it != connections_.end()) {
+    if (sessions_[username].state == SessionState::Disconnected) {
+      sessions_[username].connection = connection;
+      sessions_[username].state = SessionState::Reconnected;
+      sessions_[username].disconnected_at = {};
+
+      connection->status = ConnectionStatus::Authenticated;
+      connection->last_seen = ClientConnection::Clock::now();
+    }
+  }
 }
 
 void ClientManager::mark_timed_out_connections() {
@@ -243,9 +255,12 @@ void ClientManager::mark_timed_out_connections() {
 }
 
 void ClientManager::remove_timed_out_connections() {
-  for (auto &[fd, connection] : connections_) {
-    if (connection.status == ConnectionStatus::Closing) {
-      disconnect(&connection);
+  for (auto it = connections_.begin(); it != connections_.end();) {
+
+    auto current = it++;
+
+    if (current->second.status == ConnectionStatus::Closing) {
+      disconnect(&current->second);
     }
   }
 }
