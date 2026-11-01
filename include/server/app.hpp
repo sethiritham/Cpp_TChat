@@ -78,4 +78,6 @@ public:
   int initialize();
 
   void run();
+
+  void end();
 };

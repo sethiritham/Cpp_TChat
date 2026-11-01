@@ -1,4 +1,4 @@
-#include "protocol.hpp"
+#include "common/protocol.hpp"
 
 std::vector<uint8_t> create_packet_stream(const PacketType &type,
                                           const std::string &payload) {

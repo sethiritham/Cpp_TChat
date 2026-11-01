@@ -514,3 +514,5 @@ void ServerApp::run() {
     }
   }
 }
+
+void ServerApp::end() {}
