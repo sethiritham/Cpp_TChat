@@ -1,4 +1,5 @@
 #include "server/app.hpp"
+#include "common/ui.hpp"
 
 #define SERVER_TIMER_IDENT 999
 
@@ -40,24 +41,24 @@ void ServerApp::handle_login_case(VerifyClientStatus status,
   case VerifyClientStatus::Authorized: {
     connection->status = ConnectionStatus::Authenticated;
     auto auth_packet = create_packet_stream(PacketType::Login, "OK");
-    queue_write(connection->fd, auth_packet, connection->tx_queue);
+    queue_write(connection, auth_packet);
     break;
   }
   case VerifyClientStatus::NotAuthorized: {
     auto error_packet = create_packet_stream(PacketType::Login, "NO");
-    queue_write(connection->fd, error_packet, connection->tx_queue);
+    queue_write(connection, error_packet);
     client_manager_.disconnect(connection);
     break;
   }
   case VerifyClientStatus::UserNotFound: {
     auto error_packet = create_packet_stream(PacketType::Login, "NO");
-    queue_write(connection->fd, error_packet, connection->tx_queue);
+    queue_write(connection, error_packet);
     client_manager_.disconnect(connection);
     break;
   }
   case VerifyClientStatus::ExecFailed: {
     auto error_packet = create_packet_stream(PacketType::Login, "NO");
-    queue_write(connection->fd, error_packet, connection->tx_queue);
+    queue_write(connection, error_packet);
     client_manager_.disconnect(connection);
     break;
   }
@@ -74,7 +75,7 @@ void ServerApp::handle_register_client_status(RegisterClientStatus status,
   }
   case RegisterClientStatus::ClientRegistered: {
     auto ack_packet = create_packet_stream(PacketType::Register, "OK");
-    queue_write(connection->fd, ack_packet, connection->tx_queue);
+    queue_write(connection, ack_packet);
     break;
   }
   case RegisterClientStatus::UnableToOpenDatabase: {
@@ -261,7 +262,7 @@ void ServerApp::handle_read_result(ClientConnection *connection,
   }
   case ReadResult::WantWrite: {
     connection->read_waiting_for_write = true;
-    client_manager_.enable_write_event(p_kq, connection->fd);
+    enable_write_event(p_kq, connection->fd);
 
     break;
   }
@@ -413,6 +414,26 @@ void ServerApp::timer_event() {
   client_manager_.remove_expired_sessions();
 }
 
+void ServerApp::enable_write_event(int kq, int fd) {
+  struct kevent ev;
+
+  EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+
+  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+    perror("Failed to enable write event");
+  }
+}
+
+void ServerApp::disable_write_event(int kq, int fd) {
+  struct kevent ev;
+
+  EV_SET(&ev, fd, EVFILT_WRITE, EV_DISABLE, 0, 0, nullptr);
+
+  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+    perror("Failed to disable write event");
+  }
+}
+
 int ServerApp::initialize() {
   signal(SIGPIPE, SIG_IGN);
 
@@ -516,4 +537,8 @@ void ServerApp::run() {
   }
 }
 
-void ServerApp::end() {}
+void ServerApp::end() {
+  cleanupNcurses();
+  close(p_kq);
+  close(listening_fd_);
+}

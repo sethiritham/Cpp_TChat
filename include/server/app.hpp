@@ -2,7 +2,7 @@
 #include "common/network.hpp"
 #include "common/protocol.hpp"
 #include "common/ui.hpp"
-#include "connection.hpp"
+#include "manager.hpp"
 #include "server/io.hpp"
 #include "server/message_handler.hpp"
 #include "server/sql_helper.hpp"
@@ -73,6 +73,10 @@ private:
   void client_connection_event();
 
   void timer_event();
+
+  void enable_write_event(int kq, int fd);
+
+  void disable_write_event(int kq, int fd);
 
 public:
   int initialize();

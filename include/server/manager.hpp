@@ -84,27 +84,33 @@ struct ClientSession {
   SessionState state = SessionState::Connected;
 };
 
+class ConnectionManager {
+  std::map<int, ClientConnection> connections_;
+  ClientConnection *find_connection(int fd);
+
+  void pong(ClientConnection *connection);
+
+  AcceptClientStatus accept_client(int server_fd, SSL_CTX *ssl_ctx, int kq);
+
+  void mark_timed_out_connections();
+
+  void remove_timed_out_connections();
+};
+
 class ClientManager {
 private:
   std::map<int, ClientConnection> connections_;
   std::map<std::string, ClientSession> sessions_;
 
-private:
-  bool authorize_client(const std::vector<uint8_t> &auth_packet);
-
 public:
   KickStatus kick(const std::string &username);
   DisconnectStatus disconnect(ClientConnection *connection);
 
-  ClientSession *find_session(const std::string &username);
-  ClientConnection *find_connection(const int &fd);
+  ClientConnection *find_connection(int fd);
 
   ClientSession *find_sesssion_from_connection(ClientConnection *connection);
 
   RemoveSessionStatus remove_session(const std::string &username);
-
-  void enable_write_event(int kq, int fd);
-  void disable_write_event(int kq, int fd);
 
   void pong(ClientConnection *connection);
 

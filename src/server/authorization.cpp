@@ -2,8 +2,8 @@
 #include "bcrypt/bcrypt.h"
 #include "common/network.hpp"
 #include "common/ui.hpp"
-#include "server/connection.hpp"
 #include "server/io.hpp"
+#include "server/manager.hpp"
 #include "server/sql_helper.hpp"
 #include <string>
 

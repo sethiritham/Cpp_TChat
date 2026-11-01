@@ -39,8 +39,8 @@ struct ConsoleInputResult {
 
 ConsoleInputResult read_console_input(std::string &input_buffer);
 
-void queue_write(int fd, const std::vector<uint8_t> &data,
-                 std::deque<std::vector<uint8_t>> &tx_queue);
+void queue_write(ClientConnection *connection,
+                 const std::vector<uint8_t> &data);
 
 FlushResult flush_write(ClientConnection *connection);
 

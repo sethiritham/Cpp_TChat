@@ -1,4 +1,4 @@
-#include "server/connection.hpp"
+#include "server/manager.hpp"
 #include "common/network.hpp"
 #include "common/protocol.hpp"
 #include "server/io.hpp"
@@ -7,26 +7,6 @@
 #include <functional>
 #include <string>
 #include <vector>
-
-void ClientManager::enable_write_event(int kq, int fd) {
-  struct kevent ev;
-
-  EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, nullptr);
-
-  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
-    perror("Failed to enable write event");
-  }
-}
-
-void ClientManager::disable_write_event(int kq, int fd) {
-  struct kevent ev;
-
-  EV_SET(&ev, fd, EVFILT_WRITE, EV_DISABLE, 0, 0, nullptr);
-
-  if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
-    perror("Failed to disable write event");
-  }
-}
 
 AcceptClientStatus ClientManager::accept_client(int server_fd, SSL_CTX *ssl_ctx,
                                                 int kq) {
@@ -137,16 +117,17 @@ DisconnectStatus ClientManager::disconnect(ClientConnection *connection) {
 
 RemoveSessionStatus ClientManager::remove_session(const std::string &username) {
 
-  ClientSession *session = find_session(username);
-
-  if (!session)
+  auto it = sessions_.find(username);
+  if (it == sessions_.end())
     return RemoveSessionStatus::SessionNotFound;
 
-  if (session->connection != nullptr) {
+  ClientSession session = it->second;
+
+  if (session.connection != nullptr) {
     return RemoveSessionStatus::SessionStillConnected;
   }
 
-  switch (session->state) {
+  switch (session.state) {
   case SessionState::Disconnected:
   case SessionState::Kicked:
   case SessionState::Expired:
@@ -157,22 +138,25 @@ RemoveSessionStatus ClientManager::remove_session(const std::string &username) {
     return RemoveSessionStatus::InvalidState;
   }
 
-  sessions_.erase(session->username);
+  sessions_.erase(session.username);
 
   return RemoveSessionStatus::Removed;
 }
 
 KickStatus ClientManager::kick(const std::string &username) {
-  ClientSession *session = find_session(username);
 
-  if (!session) {
+  auto it = sessions_.find(username);
+
+  if (it == sessions_.end()) {
     return KickStatus::ClientNotFound;
   }
 
-  session->state = SessionState::Kicked;
+  ClientSession session = it->second;
 
-  if (session->connection) {
-    DisconnectStatus status = disconnect(session->connection);
+  session.state = SessionState::Kicked;
+
+  if (session.connection) {
+    DisconnectStatus status = disconnect(session.connection);
 
     if (status != DisconnectStatus::Disconnected) {
       return KickStatus::ClientNotFound;
@@ -180,28 +164,6 @@ KickStatus ClientManager::kick(const std::string &username) {
   }
 
   return KickStatus::Kicked;
-}
-
-ClientSession *ClientManager::find_session(const std::string &username) {
-  for (auto &[name, session] : sessions_) {
-    if (name == username) {
-      ClientSession *ses = &session;
-      return ses;
-    }
-  }
-
-  return nullptr;
-}
-
-ClientConnection *ClientManager::find_connection(const int &fd) {
-  for (auto &[connection_fd, connection] : connections_) {
-    if (connection_fd == fd) {
-      ClientConnection *con = &connection;
-      return con;
-    }
-  }
-
-  return nullptr;
 }
 
 void ClientManager::pong(ClientConnection *connection) {

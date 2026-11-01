@@ -1,14 +1,14 @@
 #include "server/io.hpp"
 #include "common/ui.hpp"
-#include "server/connection.hpp"
+#include "server/manager.hpp"
 #include <deque>
 #include <sstream>
 #include <string>
 #include <vector>
 
-void queue_write(int fd, const std::vector<uint8_t> &data,
-                 std::deque<std::vector<uint8_t>> &tx_queue) {
-  tx_queue.push_back(data);
+void queue_write(ClientConnection *connection,
+                 const std::vector<uint8_t> &data) {
+  connection->tx_queue.push_back(data);
 }
 
 FlushResult flush_write(ClientConnection *connection) {
@@ -60,7 +60,7 @@ void broadcast(int sender_fd, const std::vector<uint8_t> &packet,
       return;
     }
 
-    queue_write(fd, packet, connection.tx_queue);
+    queue_write(&connection, packet);
   });
 }
 
