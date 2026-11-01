@@ -31,9 +31,9 @@
  *
  */
 
-#include "bcrypt.h"
-#include "node_blf.h"
-#include "openbsd.h"
+#include "bcrypt/bcrypt.h"
+#include "bcrypt/node_blf.h"
+#include "bcrypt/openbsd.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

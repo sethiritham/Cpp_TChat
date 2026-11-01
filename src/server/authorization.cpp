@@ -1,9 +1,10 @@
-#include "authorization.hpp"
-#include "network.hpp"
-#include "server_connection.hpp"
-#include "server_io.hpp"
-#include "sql_helper.hpp"
-#include "ui.hpp"
+#include "server/authorization.hpp"
+#include "bcrypt/bcrypt.h"
+#include "common/network.hpp"
+#include "common/ui.hpp"
+#include "server/server_connection.hpp"
+#include "server/server_io.hpp"
+#include "server/sql_helper.hpp"
 #include <iostream>
 #include <string>
 

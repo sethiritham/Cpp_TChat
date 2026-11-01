@@ -1,4 +1,3 @@
-#include <bcrypt.h>
 #include <cstddef>
 #include <string>
 

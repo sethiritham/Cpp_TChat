@@ -1,6 +1,6 @@
-#include "server_connection.hpp"
-#include "server_io.hpp"
-#include "ui.hpp"
+#include "common/ui.hpp"
+#include "server/server_connection.hpp"
+#include "server/server_io.hpp"
 #include <deque>
 #include <sstream>
 #include <string>

@@ -1,5 +1,5 @@
-#include "sql_helper.hpp"
-#include "ui.hpp"
+#include "server/sql_helper.hpp"
+#include "common/ui.hpp"
 #include <iostream>
 
 int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
