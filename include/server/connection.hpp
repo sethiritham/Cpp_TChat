@@ -124,4 +124,7 @@ public:
 
   void for_each_connection(
       const std::function<void(int, ClientConnection &)> &callback);
+
+  bool verify_session(const std::string &username,
+                      const std::string &token) const;
 };

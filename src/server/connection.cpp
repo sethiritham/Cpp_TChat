@@ -4,6 +4,7 @@
 #include "server/io.hpp"
 #include <chrono>
 #include <ctime>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -295,5 +296,23 @@ void ClientManager::remove_expired_sessions() {
 
   for (const auto &username : expired_usernames) {
     RemoveSessionStatus status = remove_session(username);
+  }
+}
+
+bool ClientManager::verify_session(const std::string &username,
+                                   const std::string &token) const {
+  auto it = sessions_.find(username);
+
+  if (it == sessions_.end()) {
+    return false;
+  }
+
+  return it->second.token == token;
+}
+
+void ClientManager::for_each_connection(
+    const std::function<void(int, ClientConnection &)> &callback) {
+  for (auto &[fd, connection] : connections_) {
+    callback(fd, connection);
   }
 }

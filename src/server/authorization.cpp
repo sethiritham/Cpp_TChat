@@ -41,19 +41,8 @@ VerifyClientStatus verify_client(const std::string &username,
              : VerifyClientStatus::NotAuthorized;
 }
 
-bool verify_session(const std::string &username, const std::string &token,
-                    const std::map<std::string, ClientSession> &sessions_) {
-  for (auto &[name, session] : sessions_) {
-    if (name == username && session.token == token) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-RegisterClientStatus add_client(const std::string &username,
-                                const std::string &password) {
+RegisterClientStatus register_client(const std::string &username,
+                                     const std::string &password) {
 
   sqlite3 *DB;
 

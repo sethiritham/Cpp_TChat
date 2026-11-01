@@ -108,7 +108,8 @@ void ServerApp::handle_handshake_client(HandshakeResult result,
     break;
   }
   case HandshakeKind::Reconnect: {
-    if (verify_client_session(result.request.username, result.request.token)) {
+    if (client_manager_.verify_session(result.request.username,
+                                       result.request.token)) {
       client_manager_.reconnect_client(result.request.username, connection);
     } else {
       // log reconnect faliure?
@@ -455,7 +456,7 @@ int ServerApp::initialize() {
          NOTE_SECONDS, 5, nullptr);
   kevent(p_kq, &timer_ev, 1, nullptr, 0, nullptr);
 
-  msg = "[SERVER] active on PORT: 8080";
+  msg = "Active on PORT: 8080";
   print_message(msg, PrintKind::Server);
 
   p_event_list.reserve(32);

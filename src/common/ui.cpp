@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <string>
 #include <unordered_map>
 
 std::mutex consoleLock;
@@ -147,20 +148,27 @@ void print_message(const std::string &message, PrintKind kind,
 
   short pair = 0;
 
+  std::string formatted_msg;
+
   switch (kind) {
   case PrintKind::Self:
+    formatted_msg = "[YOU]: " + message;
     pair = 2;
     break;
   case PrintKind::Admin:
+    formatted_msg = "[ADMIN]: " + message;
     pair = 1;
     break;
   case PrintKind::Error:
+    formatted_msg = "[ERROR]: " + message;
     pair = 3;
     break;
   case PrintKind::Client:
+    formatted_msg = "[" + sender + "]: " + message;
     pair = getUserColorPair(sender);
     break;
   case PrintKind::Server:
+    formatted_msg = "[SERVER]: " + message;
   case PrintKind::System:
   default:
     pair = 0;
@@ -185,7 +193,7 @@ void print_message(const std::string &message, PrintKind kind,
     wattron(chatWin, attributes);
   }
 
-  wprintw(chatWin, "%s\n", message.c_str());
+  wprintw(chatWin, "%s\n", formatted_msg.c_str());
 
   if (attributes != 0) {
     wattroff(chatWin, attributes);

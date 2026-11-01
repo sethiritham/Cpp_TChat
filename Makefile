@@ -57,6 +57,9 @@ DEPFILES := $(sort $(SERVER_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d))
 
 all: $(SERVER) $(CLIENT)
 
+server: $(SERVER)
+client: $(CLIENT)
+
 $(SERVER): $(SERVER_OBJS)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 

@@ -21,6 +21,3 @@ VerifyClientStatus verify_client(const std::string &username,
 
 RegisterClientStatus register_client(const std::string &name,
                                      const std::string &pass);
-
-bool verify_client_session(const std::string &username,
-                           const std::string &token);
