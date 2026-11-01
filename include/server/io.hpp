@@ -1,4 +1,3 @@
-#include "app.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
