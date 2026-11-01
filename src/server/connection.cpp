@@ -1,7 +1,7 @@
-#include "network.hpp"
-#include "protocol.hpp"
-#include "server_connection.hpp"
-#include "server_io.hpp"
+#include "server/connection.hpp"
+#include "common/network.hpp"
+#include "common/protocol.hpp"
+#include "server/io.hpp"
 #include <chrono>
 #include <ctime>
 #include <string>

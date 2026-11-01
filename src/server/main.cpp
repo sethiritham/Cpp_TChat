@@ -1,3 +1,3 @@
-#include "server/server_app.hpp"
+#include "server/app.hpp"
 
 int main() { return 0; }

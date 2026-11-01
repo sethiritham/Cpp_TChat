@@ -2,9 +2,9 @@
 #include "common/protocol.hpp"
 #include "common/ui.hpp"
 #include "server/authorization.hpp"
-#include "server/server_connection.hpp"
-#include "server/server_io.hpp"
-#include "server/server_message_handler.hpp"
+#include "server/connection.hpp"
+#include "server/io.hpp"
+#include "server/message_handler.hpp"
 #include "server/sql_helper.hpp"
 #include <arpa/inet.h>
 #include <cerrno>

@@ -2,10 +2,9 @@
 #include "bcrypt/bcrypt.h"
 #include "common/network.hpp"
 #include "common/ui.hpp"
-#include "server/server_connection.hpp"
-#include "server/server_io.hpp"
+#include "server/connection.hpp"
+#include "server/io.hpp"
 #include "server/sql_helper.hpp"
-#include <iostream>
 #include <string>
 
 VerifyClientStatus verify_client(const std::string &username,
@@ -70,7 +69,6 @@ RegisterClientStatus add_client(const std::string &username,
   std::string sql =
       "INSERT INTO users (username, password_hash) VALUES (?, ?);";
   sqlite3_stmt *stmt;
-  bool success = false;
 
   if (sqlite3_prepare_v2(DB, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
     sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
@@ -90,7 +88,6 @@ RegisterClientStatus add_client(const std::string &username,
       sqlite3_finalize(stmt);
       sqlite3_close(DB);
       return RegisterClientStatus::UsernameExists;
-      success = false;
     } else {
       sqlite3_finalize(stmt);
       sqlite3_close(DB);

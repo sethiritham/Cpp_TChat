@@ -1,6 +1,6 @@
+#include "server/io.hpp"
 #include "common/ui.hpp"
-#include "server/server_connection.hpp"
-#include "server/server_io.hpp"
+#include "server/connection.hpp"
 #include <deque>
 #include <sstream>
 #include <string>
@@ -30,7 +30,7 @@ FlushResult flush_write(std::deque<std::vector<uint8_t>> &tx_queue,
     if (result > 0) {
       tx_offset += result;
 
-      if (tx_offset >= packet.size()) {
+      if (tx_offset >= (int)packet.size()) {
         tx_queue.pop_front();
         tx_offset = 0;
       }
