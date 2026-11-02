@@ -52,6 +52,13 @@ enum class PacketType : std::uint8_t {
   Reconnnect = 0x0A
 };
 
+constexpr uint32_t MAX_AUTH_PAYLOAD_SIZE = 1024;
+constexpr uint32_t MAX_MESSAGE_PAYLOAD_SIZE = 8 * 1024;
+constexpr uint32_t MAX_FILE_META_PAYLOAD_SIZE = 4 * 1024;
+
+constexpr uint32_t FILE_CHUNK_SIZE = 64 * 1024;
+constexpr uint32_t MAX_FILE_CHUNK_PAYLOAD_SIZE = FILE_CHUNK_SIZE;
+
 #pragma pack(push, 1)
 /**
  * @brief Meta data of the packet

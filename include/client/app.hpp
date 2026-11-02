@@ -1,4 +1,9 @@
+#include "authorization.hpp"
+#include "common/network.hpp"
+#include "common/protocol.hpp"
 #include "common/ui.hpp"
+#include "connection.hpp"
+#include "io.hpp"
 #include <arpa/inet.h>
 #include <cctype>
 #include <cerrno>
@@ -21,6 +26,16 @@
 
 #define CLIENT_TIMER_IDENT 999
 #define MAX_EVENTS 15
+#define PORT 8080
+
+enum class SessionState {
+  Connected,
+  Reconnected,
+  Kicked,
+  Expired,
+  Disconnected
+};
+
 class ClientApp {
 public:
   int listening_fd_;
@@ -33,6 +48,17 @@ private:
   bool p_running;
   int p_kq;
   std::vector<struct kevent> p_event_list;
+
+  using Clock = std::chrono::steady_clock;
+  sockaddr_in p_server_addr{};
+
+  std::string p_username;
+  std::string p_token;
+
+  ConnectionManager p_manager;
+  int p_num_reconnects = 0;
+
+  SessionState p_state = SessionState::Connected;
 
 private:
   SSL_CTX *init_client_ssl_context() {
@@ -51,39 +77,103 @@ private:
     return ctx;
   }
 
+  bool init_serveraddr() {
+    // read serverIP - io.cpp
+    std::string ip; // temp
+
+    p_server_addr.sin_family = AF_INET;
+    p_server_addr.sin_port = htons(PORT);
+
+    if (inet_pton(AF_INET, ip.c_str(), &p_server_addr.sin_addr) != 1) {
+      // Invalid address
+      return false;
+    }
+
+    return true;
+  }
+
+  void handle_establish_connection_status(EstablishConnectionStatus status) {
+    switch (status) {
+    case EstablishConnectionStatus::ConnectionFailed: {
+      // end the app, log error
+      break;
+    }
+    case EstablishConnectionStatus::HandshakeFailed: {
+      // retry handshake?
+      break;
+    }
+    case EstablishConnectionStatus::Established: {
+      // connection established, move onto authentication?
+    }
+    }
+  }
+
+  int handle_login_result(LoginResult result) {
+
+    switch (result.status) {
+
+    case LoginStatus::AuthenticationRejected:
+      // disconnect
+      //  What do I do?
+      return 0;
+      break;
+    case LoginStatus::ConnectionLost:
+      // disconnect
+      // What do I do?
+      return 0;
+      break;
+    case LoginStatus::ProtocolError:
+      // disconnect
+      //  What do I do?
+      return 0;
+      break;
+    case LoginStatus::Success:
+      // Do nothing
+      return 1;
+      break;
+    }
+  }
+
 public:
   int initialize() {
 
-    SSL_CTX *ssl_ctx = init_client_ssl_context();
-    // int client_fd = client_login(ssl_ctx);
+    ssl_ctx_ = init_client_ssl_context();
+
+    if (!init_serveraddr())
+      return -1;
+
+    EstablishConnectionStatus status =
+        p_manager.establish_connection(ssl_ctx_, p_server_addr);
+    handle_establish_connection_status(status);
+
+    LoginResult result = login_client(&p_manager.connection);
+
+    if (!handle_login_result(result))
+      return 0;
+
+    p_manager.connection.last_server_activity = ClientConnection::Clock::now();
 
     setupNcurses();
-    // g_last_server_activity = time(nullptr);
     nodelay(inputWin, true);
-
-    // if (client_fd < 0) {
-    //   perror("LOGIN ERROR");
-    //   return -1;
-    // }
 
     signal(SIGPIPE, SIG_IGN);
 
-    // set_nonblocking(client_fd);
-    // set_nonblocking(STDIN_FILENO);
+    set_nonblocking(listening_fd_);
+    set_nonblocking(STDIN_FILENO);
 
-    int kq = kqueue();
+    p_kq = kqueue();
 
     struct kevent evs[3];
 
-    // EV_SET(&evs[0], client_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
-    // nullptr); EV_SET(&evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE,
-    // 0, 0,
-    //        nullptr);
-    // EV_SET(&evs[2], CLIENT_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
-    //        NOTE_SECONDS, 5, nullptr);
+    EV_SET(&evs[0], listening_fd_, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+           nullptr);
+    EV_SET(&evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+           nullptr);
+    EV_SET(&evs[2], CLIENT_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
+           NOTE_SECONDS, 5, nullptr);
 
     int kevent_error = 0;
-    kevent_error = kevent(kq, evs, 3, nullptr, 0, nullptr);
+    kevent_error = kevent(p_kq, evs, 3, nullptr, 0, nullptr);
 
     if (kevent_error < 0) {
       perror("kevent registration failed");
@@ -91,9 +181,11 @@ public:
 
     std::string input_buffer;
     std::vector<uint8_t> rx_buffer;
-    // std::vector<struct kevent> event_list(MAX_EVENTS);
+
+    p_event_list.reserve(32);
 
     p_running = true;
+
     return 1;
   }
 
@@ -112,7 +204,9 @@ public:
 
         if (p_event_list[i].filter == EVFILT_TIMER &&
             current_fd == CLIENT_TIMER_IDENT) {
-          // ping and timeout check
+
+          auto ping_pkt = create_packet_stream(PacketType::Ping, "");
+          queue_write(&p_manager.connection, ping_pkt);
         }
 
         if (current_fd == STDIN_FILENO) {
@@ -128,7 +222,7 @@ public:
 
   void end() {
     cleanupNcurses();
-    close(p_kq);
+
     close(listening_fd_);
   }
 };
