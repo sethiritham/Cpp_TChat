@@ -73,4 +73,13 @@ public:
 
     return EstablishConnectionStatus::Established;
   }
+
+  void close_connection() {
+
+    if (connection.ssl) {
+      SSL_free(connection.ssl);
+    }
+
+    close(connection.fd);
+  }
 };

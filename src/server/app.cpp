@@ -1,7 +1,27 @@
 #include "server/app.hpp"
 #include "common/ui.hpp"
+#include "server/manager.hpp"
+#include <random>
 
 #define SERVER_TIMER_IDENT 999
+
+std::string generate_token() {
+  const std::string characters =
+      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+  int length = 8;
+
+  std::random_device rd;
+  std::mt19937 generator(rd());
+  std::uniform_int_distribution<> distribution(0, characters.size() - 1);
+
+  std::string random_string;
+  for (size_t i = 0; (int)i < length; ++i) {
+    random_string += characters[distribution(generator)];
+  }
+
+  return random_string;
+}
 
 SSL_CTX *ServerApp::init_server_ssl_context() {
   SSL_library_init();
@@ -40,26 +60,27 @@ void ServerApp::handle_login_case(VerifyClientStatus status,
   switch (status) {
   case VerifyClientStatus::Authorized: {
     connection->status = ConnectionStatus::Authenticated;
-    auto auth_packet = create_packet_stream(PacketType::Login, "OK");
+    auto token = generate_token();
+    auto auth_packet = create_packet_stream(PacketType::Ack, "OK|" + token);
     queue_write(connection, auth_packet);
     break;
   }
   case VerifyClientStatus::NotAuthorized: {
-    auto error_packet = create_packet_stream(PacketType::Login, "NO");
+    auto error_packet = create_packet_stream(PacketType::Ack, "NO");
     queue_write(connection, error_packet);
-    client_manager_.disconnect(connection);
+    connection->status = ConnectionStatus::Closing;
     break;
   }
   case VerifyClientStatus::UserNotFound: {
-    auto error_packet = create_packet_stream(PacketType::Login, "NO");
+    auto error_packet = create_packet_stream(PacketType::Ack, "NO");
     queue_write(connection, error_packet);
-    client_manager_.disconnect(connection);
+    connection->status = ConnectionStatus::Closing;
     break;
   }
   case VerifyClientStatus::ExecFailed: {
-    auto error_packet = create_packet_stream(PacketType::Login, "NO");
+    auto error_packet = create_packet_stream(PacketType::Error, "ERR");
     queue_write(connection, error_packet);
-    client_manager_.disconnect(connection);
+    connection->status = ConnectionStatus::Closing;
     break;
   }
   }
@@ -375,15 +396,33 @@ void ServerApp::handle_console_input_result(ConsoleInputResult result) {
   }
 }
 
+void handle_disconnect_status(DisconnectStatus status) {
+  switch (status) {
+  case DisconnectStatus::Disconnected:
+    return;
+  case DisconnectStatus::ClientNotFound:
+    print_message("Client not found!\n", PrintKind::Error);
+    return;
+  }
+}
+
 void ServerApp::handle_flush_result(FlushResult result,
                                     ClientConnection *connection) {
   switch (result) {
   case FlushResult::FatalError: {
-    client_manager_.disconnect(connection);
+    DisconnectStatus status = client_manager_.disconnect(connection);
+    handle_disconnect_status(status);
     return;
   }
   case FlushResult::QueueEmpty: {
-    return;
+
+    if (connection->status == ConnectionStatus::Closing) {
+
+      DisconnectStatus status = client_manager_.disconnect(connection);
+      handle_disconnect_status(status);
+
+      return;
+    }
   }
   case FlushResult::ReadWait: {
     connection->write_waiting_for_read = true;

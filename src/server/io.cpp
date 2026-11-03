@@ -13,7 +13,11 @@ void queue_write(ClientConnection *connection,
 
 FlushResult flush_write(ClientConnection *connection) {
 
+  if (!connection || !connection->ssl)
+    return FlushResult::FatalError;
+
   while (!connection->tx_queue.empty()) {
+
     auto &packet = connection->tx_queue.front();
 
     if (packet.empty()) {
@@ -22,14 +26,28 @@ FlushResult flush_write(ClientConnection *connection) {
       continue;
     }
 
+    if (connection->tx_offset > packet.size())
+      return FlushResult::FatalError;
+
     size_t remaining = packet.size() - connection->tx_offset;
 
-    int result = SSL_write(connection->ssl, packet.data(), packet.size());
+    if (remaining > static_cast<size_t>(INT_MAX))
+      return FlushResult::FatalError;
+
+    ERR_clear_error();
+    errno = 0;
+
+    int result =
+        SSL_write(connection->ssl, packet.data() + connection->tx_offset,
+                  static_cast<int>(remaining));
+
+    int saved_errno = errno;
 
     if (result > 0) {
-      connection->tx_offset += result;
+      connection->tx_offset += static_cast<size_t>(result);
+      connection->write_waiting_for_read = false;
 
-      if (connection->tx_offset >= (int)packet.size()) {
+      if (connection->tx_offset == packet.size()) {
         connection->tx_queue.pop_front();
         connection->tx_offset = 0;
       }
@@ -40,15 +58,22 @@ FlushResult flush_write(ClientConnection *connection) {
     int error = SSL_get_error(connection->ssl, result);
 
     if (error == SSL_ERROR_WANT_READ) {
+      connection->write_waiting_for_read = true;
       return FlushResult::ReadWait;
     }
 
     if (error == SSL_ERROR_WANT_WRITE) {
+      connection->write_waiting_for_read = false;
       return FlushResult::WriteWait;
     }
 
+    if (error == SSL_ERROR_SYSCALL && saved_errno == EINTR)
+      continue;
+
     return FlushResult::FatalError;
   }
+
+  connection->write_waiting_for_read = false;
 
   return FlushResult::QueueEmpty;
 }
@@ -66,26 +91,51 @@ void broadcast(int sender_fd, const std::vector<uint8_t> &packet,
 
 ReadResult handle_read(ClientConnection *connection) {
 
-  SSL *ssl = connection->ssl;
-  char buffer[1024];
-  ssize_t bytes_read = SSL_read(ssl, buffer, sizeof(buffer));
+  if (!connection || !connection->ssl)
+    return ReadResult::FatalError;
 
-  if (bytes_read > 0) {
-    connection->rx_buffer.insert(connection->rx_buffer.end(), buffer,
-                                 buffer + bytes_read);
-  } else {
-    int ssl_err = SSL_get_error(ssl, bytes_read);
+  if (connection->status == ConnectionStatus::Closing)
+    return ReadResult::Ignored;
+
+  char buffer[1024];
+
+  while (true) {
+    ERR_clear_error();
+    errno = 0;
+
+    int bytes_read = SSL_read(connection->ssl, buffer, sizeof(buffer));
+
+    int saved_errno = errno;
+
+    if (bytes_read > 0) {
+      connection->rx_buffer.insert(connection->rx_buffer.end(), buffer,
+                                   buffer + bytes_read);
+
+      connection->read_waiting_for_write = false;
+
+      return ReadResult::DataReceived;
+    }
+
+    int ssl_err = SSL_get_error(connection->ssl, bytes_read);
+
     if (ssl_err == SSL_ERROR_WANT_READ) {
+      connection->read_waiting_for_write = false;
       return ReadResult::WantRead;
     }
+
     if (ssl_err == SSL_ERROR_WANT_WRITE) {
+      connection->read_waiting_for_write = true;
       return ReadResult::WantWrite;
     }
 
+    if (ssl_err == SSL_ERROR_ZERO_RETURN)
+      return ReadResult::ConnectionClosed;
+
+    if (ssl_err == SSL_ERROR_SYSCALL && saved_errno == EINTR)
+      continue;
+
     return ReadResult::FatalError;
   }
-
-  return ReadResult::DataReceived;
 }
 
 ConsoleInputResult read_console_input(std::string &input_buffer) {

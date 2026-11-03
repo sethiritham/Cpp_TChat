@@ -35,11 +35,14 @@ LoginResult login_client(ClientConnection *connection) {
   std::string msg;
   process_client_stream(connection->rx_buffer, msg);
 
-  if (msg != "OK") {
+  if (msg.substr(0, 2) != "OK") {
     result.status = LoginStatus::AuthenticationRejected;
     return result;
   }
 
+  result.token = msg.substr(3);
+  result.username = username;
   result.status = LoginStatus::Success;
+
   return result;
 }

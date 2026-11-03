@@ -22,7 +22,14 @@ class ClientManager;
 
 enum class FlushResult { QueueEmpty, WriteWait, ReadWait, FatalError };
 
-enum class ReadResult { DataReceived, WantRead, WantWrite, FatalError };
+enum class ReadResult {
+  DataReceived,
+  WantRead,
+  WantWrite,
+  ConnectionClosed,
+  Ignored,
+  FatalError
+};
 
 enum class ConsoleInputStatus {
   NoInput,

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
+#include <iostream>
 #include <map>
 #include <netinet/in.h>
 #include <openssl/err.h>
@@ -35,6 +36,14 @@ enum class SessionState {
   Expired,
   Disconnected
 };
+
+enum class DisconnectStatus {
+  Disconnected,
+  FailedToDisconnect,
+  AlreadyDisconnected
+};
+
+enum class LoginAction { EnterChat, RetryLogin, Abort };
 
 class ClientApp {
 public:
@@ -92,101 +101,179 @@ private:
     return true;
   }
 
-  void handle_establish_connection_status(EstablishConnectionStatus status) {
+  bool handle_establish_connection_status(EstablishConnectionStatus status) {
     switch (status) {
     case EstablishConnectionStatus::ConnectionFailed: {
-      // end the app, log error
+      return false;
       break;
     }
     case EstablishConnectionStatus::HandshakeFailed: {
-      // retry handshake?
+      return false;
       break;
     }
     case EstablishConnectionStatus::Established: {
-      // connection established, move onto authentication?
+      return true;
     }
     }
   }
 
-  int handle_login_result(LoginResult result) {
+  DisconnectStatus disconnect() {
+    auto &connection = p_manager.connection;
+
+    if (connection.fd < 0 && connection.ssl == nullptr) {
+      p_state = SessionState::Disconnected;
+      return DisconnectStatus::AlreadyDisconnected;
+    }
+
+    p_manager.close_connection();
+
+    p_state = SessionState::Disconnected;
+
+    return DisconnectStatus::Disconnected;
+  }
+
+  LoginAction handle_login_result(LoginResult result) {
 
     switch (result.status) {
 
     case LoginStatus::AuthenticationRejected:
-      // disconnect
-      //  What do I do?
-      return 0;
+      return LoginAction::RetryLogin;
       break;
     case LoginStatus::ConnectionLost:
-      // disconnect
-      // What do I do?
-      return 0;
+      return LoginAction::RetryLogin;
       break;
     case LoginStatus::ProtocolError:
-      // disconnect
-      //  What do I do?
-      return 0;
+      return LoginAction::Abort;
       break;
     case LoginStatus::Success:
-      // Do nothing
-      return 1;
+      p_state = SessionState::Connected;
+      p_manager.connection.status = ConnectionStatus::Authenticated;
+
+      p_username = result.username;
+      p_token = result.token;
+
+      return LoginAction::EnterChat;
       break;
     }
   }
 
+  bool perform_login_action(LoginAction action) {
+
+    while (true) {
+
+      switch (action) {
+
+      case LoginAction::EnterChat:
+        if (init_chat())
+          return true;
+        return false;
+
+      case LoginAction::Abort:
+        disconnect();
+        std::cout << "LOGIN FAILED!" << std::endl;
+        return false;
+
+      case LoginAction::RetryLogin: {
+        disconnect();
+        EstablishConnectionStatus status =
+            p_manager.establish_connection(ssl_ctx_, p_server_addr);
+
+        if (!handle_establish_connection_status(status))
+          return false;
+
+        LoginResult result = login_client(&p_manager.connection);
+        action = handle_login_result(result);
+        continue;
+      }
+      }
+    }
+  }
+
+  void enable_write_event() {
+    struct kevent ev{};
+    EV_SET(&ev, p_manager.connection.fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0,
+           nullptr);
+    kevent(p_kq, &ev, 1, nullptr, 0, nullptr);
+  }
+
+  void disable_write_event() {
+    struct kevent ev{};
+    EV_SET(&ev, p_manager.connection.fd, EVFILT_WRITE, EV_DELETE, 0, 0,
+           nullptr);
+    kevent(p_kq, &ev, 1, nullptr, 0, nullptr);
+  }
+
+  bool init_chat() {
+
+    auto &connection = p_manager.connection;
+
+    if (connection.fd < 0 || !connection.ssl)
+      return false;
+
+    if (connection.status != ConnectionStatus::Authenticated)
+      return false;
+
+    connection.last_server_activity = ClientConnection::Clock::now();
+
+    if (!set_nonblocking(connection.fd))
+      return false;
+
+    if (!set_nonblocking(STDIN_FILENO))
+      return false;
+
+    p_kq = kqueue();
+
+    if (p_kq < 0)
+      return false;
+
+    nodelay(inputWin, true);
+
+    struct kevent evs[4];
+
+    EV_SET(&evs[0], connection.fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+           nullptr);
+
+    EV_SET(&evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+           nullptr);
+
+    EV_SET(&evs[2], connection.fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0,
+           nullptr);
+
+    EV_SET(&evs[3], CLIENT_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
+           NOTE_SECONDS, 5, nullptr);
+
+    if (kevent(p_kq, evs, 3, nullptr, 0, nullptr) < 0) {
+      close(p_kq);
+      p_kq = -1;
+      return false;
+    }
+
+    p_event_list.resize(MAX_EVENTS);
+
+    p_running = true;
+
+    return true;
+  }
+
 public:
-  int initialize() {
+  bool initialize() {
 
     ssl_ctx_ = init_client_ssl_context();
 
     if (!init_serveraddr())
-      return -1;
+      return false;
 
     EstablishConnectionStatus status =
         p_manager.establish_connection(ssl_ctx_, p_server_addr);
-    handle_establish_connection_status(status);
+
+    if (!handle_establish_connection_status(status))
+      return false;
 
     LoginResult result = login_client(&p_manager.connection);
 
-    if (!handle_login_result(result))
-      return 0;
+    LoginAction action = handle_login_result(result);
 
-    p_manager.connection.last_server_activity = ClientConnection::Clock::now();
-
-    setupNcurses();
-    nodelay(inputWin, true);
-
-    signal(SIGPIPE, SIG_IGN);
-
-    set_nonblocking(listening_fd_);
-    set_nonblocking(STDIN_FILENO);
-
-    p_kq = kqueue();
-
-    struct kevent evs[3];
-
-    EV_SET(&evs[0], listening_fd_, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
-           nullptr);
-    EV_SET(&evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
-           nullptr);
-    EV_SET(&evs[2], CLIENT_TIMER_IDENT, EVFILT_TIMER, EV_ADD | EV_ENABLE,
-           NOTE_SECONDS, 5, nullptr);
-
-    int kevent_error = 0;
-    kevent_error = kevent(p_kq, evs, 3, nullptr, 0, nullptr);
-
-    if (kevent_error < 0) {
-      perror("kevent registration failed");
-    }
-
-    std::string input_buffer;
-    std::vector<uint8_t> rx_buffer;
-
-    p_event_list.reserve(32);
-
-    p_running = true;
-
-    return 1;
+    return perform_login_action(action);
   }
 
   void run() {
@@ -198,7 +285,6 @@ public:
           continue;
         break;
       }
-
       for (int i = 0; i < nevents; ++i) {
         int current_fd = static_cast<int>(p_event_list[i].ident);
 
@@ -212,9 +298,9 @@ public:
         if (current_fd == STDIN_FILENO) {
           // console input
         } else if (p_event_list[i].filter == EVFILT_READ) {
-          // read event
+          // read_event(); : Handle write waiting for read case
         } else if (p_event_list[i].filter == EVFILT_WRITE) {
-          // write event
+          // write_event() : handle read waiting for write case;
         }
       }
     }

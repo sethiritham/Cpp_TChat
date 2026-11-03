@@ -170,7 +170,7 @@ void ClientManager::pong(ClientConnection *connection) {
   connection->last_seen = ClientConnection::Clock::now();
 
   std::vector<uint8_t> pong_packet = create_packet_stream(PacketType::Pong, "");
-  queue_write(connection->fd, pong_packet, connection->tx_queue);
+  queue_write(connection, pong_packet);
 }
 
 ClientSession *

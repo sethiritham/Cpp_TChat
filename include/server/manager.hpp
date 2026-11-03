@@ -58,7 +58,7 @@ struct ClientConnection {
   std::deque<std::vector<uint8_t>> tx_queue;
   std::vector<uint8_t> rx_buffer;
 
-  int tx_offset = 0;
+  size_t tx_offset = 0;
 
   Clock::time_point last_seen = Clock::now();
 
