@@ -19,16 +19,23 @@
 
 struct ClientConnection;
 
-enum class SendPacketStatus { PacketSent, InvalidSSL, FailedToSend };
+enum class FlushResult { QueueEmpty, WriteWait, ReadWait, FatalError };
 
-enum class ReceiveStatus {
+enum class ReadResult {
   DataReceived,
   WantRead,
   WantWrite,
   ConnectionClosed,
-  TransportError,
-  TLSFailure,
-  InvalidSSL
+  Ignored,
+  FatalError
+};
+
+enum class ConsoleInputStatus {
+  NoInput,
+  Message,
+  KickClient,
+  Quit,
+  InvalidCommand
 };
 
 void queue_write(ClientConnection *connection,
@@ -38,6 +45,6 @@ std::string read_username(size_t max_size);
 
 std::string read_password(size_t max_size);
 
-SendPacketStatus send_packet(const std::vector<uint8_t> &pkt, SSL *ssl);
+FlushResult flush_write(ClientConnection *connection);
 
-ReceiveStatus receive_data(SSL *ssl, std::vector<uint8_t> &rx_buffer);
+ReadResult handle_read(ClientConnection *connection);

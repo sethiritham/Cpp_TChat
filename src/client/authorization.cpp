@@ -7,6 +7,14 @@
 #include <string>
 
 LoginResult login_client(ClientConnection *connection) {
+
+  LoginResult result{};
+
+  if (!connection || !connection->ssl || connection->fd < 0) {
+    result.status = LoginStatus::ConnectionLost;
+    return result;
+  }
+
   printw("- - - LOGIN - - -\n");
 
   printw("Username: ");
@@ -17,32 +25,53 @@ LoginResult login_client(ClientConnection *connection) {
   refresh();
   std::string password = read_password(36);
 
-  std::string login_payload = username + "|" + password;
+  std::string payload = username + "|" + password;
 
-  auto login_packet = create_packet_stream(PacketType::Login, login_payload);
+  auto login_packet = create_packet_stream(PacketType::Login, payload);
 
-  SendPacketStatus status = send_packet(login_packet, connection->ssl);
+  queue_write(connection, login_packet);
 
-  LoginResult result;
+  FlushResult write_status = flush_write(connection);
 
-  if (status != SendPacketStatus::PacketSent) {
+  if (write_status != FlushResult::QueueEmpty) {
     result.status = LoginStatus::ConnectionLost;
     return result;
   }
 
-  receive_data(connection->ssl, connection->rx_buffer);
+  while (true) {
 
-  std::string msg;
-  process_client_stream(connection->rx_buffer, msg);
+    ReadResult read_status = handle_read(connection);
 
-  if (msg.substr(0, 2) != "OK") {
-    result.status = LoginStatus::AuthenticationRejected;
+    if (read_status != ReadResult::DataReceived) {
+      result.status = LoginStatus::ConnectionLost;
+      return result;
+    }
+
+    std::string msg;
+
+    auto process_status = process_client_stream(connection->rx_buffer, msg);
+
+    if (process_status == ProcessStreamResult::IncompletePacket)
+      continue;
+
+    if (process_status == ProcessStreamResult::InvalidProtocolError) {
+      result.status = LoginStatus::ProtocolError;
+      return result;
+    }
+
+    if (msg == "NO") {
+      result.status = LoginStatus::AuthenticationRejected;
+      return result;
+    }
+
+    if (msg.rfind("OK|", 0) == 0 && msg.size() > 3) {
+      result.username = username;
+      result.token = msg.substr(3);
+      result.status = LoginStatus::Success;
+      return result;
+    }
+
+    result.status = LoginStatus::ProtocolError;
     return result;
   }
-
-  result.token = msg.substr(3);
-  result.username = username;
-  result.status = LoginStatus::Success;
-
-  return result;
 }

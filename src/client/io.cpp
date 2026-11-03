@@ -57,81 +57,122 @@ std::string read_password(size_t max_size) {
   return std::string(password);
 }
 
-SendPacketStatus send_packet(const std::vector<uint8_t> &pkt, SSL *ssl) {
-  if (!ssl)
-    return SendPacketStatus::InvalidSSL;
+FlushResult flush_write(ClientConnection *connection) {
 
-  size_t offset = 0;
+  if (!connection || !connection->ssl)
+    return FlushResult::FatalError;
 
-  while (offset < pkt.size()) {
-    size_t remaining = pkt.size() - offset;
+  while (!connection->tx_queue.empty()) {
 
-    int ssl_result =
-        SSL_write(ssl, pkt.data() + offset, static_cast<int>(remaining));
+    auto &packet = connection->tx_queue.front();
 
-    if (ssl_result > 0) {
-      offset += static_cast<size_t>(ssl_result);
+    if (packet.empty()) {
+      connection->tx_queue.pop_front();
+      connection->tx_offset = 0;
       continue;
     }
 
-    int ssl_error = SSL_get_error(ssl, ssl_result);
+    if (connection->tx_offset > packet.size())
+      return FlushResult::FatalError;
 
-    if (ssl_error == SSL_ERROR_ZERO_RETURN) {
-      return SendPacketStatus::FailedToSend;
+    size_t remaining = packet.size() - connection->tx_offset;
+
+    if (remaining > static_cast<size_t>(INT_MAX))
+      return FlushResult::FatalError;
+
+    ERR_clear_error();
+    errno = 0;
+
+    int result =
+        SSL_write(connection->ssl, packet.data() + connection->tx_offset,
+                  static_cast<int>(remaining));
+
+    int saved_errno = errno;
+
+    if (result > 0) {
+
+      connection->tx_offset += static_cast<size_t>(result);
+      connection->write_waiting_for_read = false;
+
+      if (connection->tx_offset == packet.size()) {
+        connection->tx_queue.pop_front();
+        connection->tx_offset = 0;
+      }
+
+      continue;
     }
 
-    return SendPacketStatus::FailedToSend;
+    int error = SSL_get_error(connection->ssl, result);
+
+    if (error == SSL_ERROR_WANT_READ) {
+      connection->write_waiting_for_read = true;
+      return FlushResult::ReadWait;
+    }
+
+    if (error == SSL_ERROR_WANT_WRITE) {
+      connection->write_waiting_for_read = false;
+      return FlushResult::WriteWait;
+    }
+
+    if (error == SSL_ERROR_SYSCALL && saved_errno == EINTR)
+      continue;
+
+    return FlushResult::FatalError;
   }
 
-  return SendPacketStatus::PacketSent;
+  connection->write_waiting_for_read = false;
+
+  return FlushResult::QueueEmpty;
 }
 
-ReceiveStatus receive_data(SSL *ssl, std::vector<uint8_t> &rx_buffer) {
-  if (!ssl)
-    return ReceiveStatus::InvalidSSL;
+ReadResult handle_read(ClientConnection *connection) {
+
+  if (!connection || !connection->ssl)
+    return ReadResult::FatalError;
+
+  if (connection->status == ConnectionStatus::Closing)
+    return ReadResult::Ignored;
 
   std::array<uint8_t, MAX_MESSAGE_PAYLOAD_SIZE> buffer{};
 
   while (true) {
+
     ERR_clear_error();
     errno = 0;
 
-    int bytes_read =
-        SSL_read(ssl, buffer.data(), static_cast<int>(buffer.size()));
+    int bytes_read = SSL_read(connection->ssl, buffer.data(),
+                              static_cast<int>(buffer.size()));
 
     int saved_errno = errno;
 
     if (bytes_read > 0) {
-      rx_buffer.insert(rx_buffer.end(), buffer.begin(),
-                       buffer.begin() + bytes_read);
 
-      return ReceiveStatus::DataReceived;
+      connection->rx_buffer.insert(connection->rx_buffer.end(), buffer.begin(),
+                                   buffer.begin() + bytes_read);
+
+      connection->read_waiting_for_write = false;
+
+      return ReadResult::DataReceived;
     }
 
-    int ssl_error = SSL_get_error(ssl, bytes_read);
+    int error = SSL_get_error(connection->ssl, bytes_read);
 
-    switch (ssl_error) {
-
-    case SSL_ERROR_WANT_READ:
-      return ReceiveStatus::WantRead;
-
-    case SSL_ERROR_WANT_WRITE:
-      return ReceiveStatus::WantWrite;
-
-    case SSL_ERROR_ZERO_RETURN:
-      return ReceiveStatus::ConnectionClosed;
-
-    case SSL_ERROR_SYSCALL:
-      if (saved_errno == EINTR)
-        continue;
-
-      return ReceiveStatus::TransportError;
-
-    case SSL_ERROR_SSL:
-      return ReceiveStatus::TLSFailure;
-
-    default:
-      return ReceiveStatus::TLSFailure;
+    if (error == SSL_ERROR_WANT_READ) {
+      connection->read_waiting_for_write = false;
+      return ReadResult::WantRead;
     }
+
+    if (error == SSL_ERROR_WANT_WRITE) {
+      connection->read_waiting_for_write = true;
+      return ReadResult::WantWrite;
+    }
+
+    if (error == SSL_ERROR_ZERO_RETURN)
+      return ReadResult::ConnectionClosed;
+
+    if (error == SSL_ERROR_SYSCALL && saved_errno == EINTR)
+      continue;
+
+    return ReadResult::FatalError;
   }
 }
