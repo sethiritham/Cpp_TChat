@@ -49,7 +49,7 @@ LoginResult login_client(ClientConnection *connection) {
 
     std::string msg;
 
-    auto process_status = process_client_stream(connection->rx_buffer, msg);
+    auto process_status = process_data_stream(connection->rx_buffer, msg);
 
     if (process_status == ProcessStreamResult::IncompletePacket)
       continue;

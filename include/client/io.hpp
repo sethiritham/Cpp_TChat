@@ -30,12 +30,11 @@ enum class ReadResult {
   FatalError
 };
 
-enum class ConsoleInputStatus {
-  NoInput,
-  Message,
-  KickClient,
-  Quit,
-  InvalidCommand
+enum class ConsoleInputStatus { NoInput, Message, Quit, InvalidCommand };
+
+struct ConsoleInputResult {
+  ConsoleInputStatus status = ConsoleInputStatus::NoInput;
+  std::string buffer;
 };
 
 void queue_write(ClientConnection *connection,
@@ -48,3 +47,7 @@ std::string read_password(size_t max_size);
 FlushResult flush_write(ClientConnection *connection);
 
 ReadResult handle_read(ClientConnection *connection);
+
+ConsoleInputResult read_console_input(std::string &input_buffer);
+
+std::string read_server_ip();

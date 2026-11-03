@@ -48,38 +48,15 @@ struct ClientConnection {
 
 class ConnectionManager {
 public:
-  ClientConnection connection;
+  ClientConnection *connection = nullptr;
 
 public:
+  ConnectionManager() = default;
+
   EstablishConnectionStatus establish_connection(SSL_CTX *ctx,
-                                                 sockaddr_in serverAddress) {
-    connection.fd = socket(AF_INET, SOCK_STREAM, 0);
+                                                 sockaddr_in serverAddress);
 
-    if (connect(connection.fd, (struct sockaddr *)&serverAddress,
-                sizeof(serverAddress)) < 0) {
-      return EstablishConnectionStatus::ConnectionFailed;
-    }
+  void close_connection();
 
-    SSL *ssl = SSL_new(ctx);
-    SSL_set_fd(ssl, connection.fd);
-
-    if (SSL_connect(ssl) <= 0) {
-      SSL_free(ssl);
-      return EstablishConnectionStatus::HandshakeFailed;
-    }
-
-    connection.ssl = ssl;
-    connection.status = ConnectionStatus::AwaitingAuth;
-
-    return EstablishConnectionStatus::Established;
-  }
-
-  void close_connection() {
-
-    if (connection.ssl) {
-      SSL_free(connection.ssl);
-    }
-
-    close(connection.fd);
-  }
+  ~ConnectionManager() { delete connection; }
 };

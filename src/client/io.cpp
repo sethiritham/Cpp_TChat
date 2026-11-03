@@ -2,6 +2,7 @@
 #include "client/connection.hpp"
 #include "common/protocol.hpp"
 #include "common/ui.hpp"
+#include <sstream>
 
 void queue_write(ClientConnection *connection,
                  const std::vector<uint8_t> &data) {
@@ -175,4 +176,95 @@ ReadResult handle_read(ClientConnection *connection) {
 
     return ReadResult::FatalError;
   }
+}
+
+ConsoleInputResult read_console_input(std::string &input_buffer) {
+  int ch;
+
+  while ((ch = wgetch(inputWin)) != ERR) {
+
+    if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
+      std::string line = input_buffer;
+      input_buffer.clear();
+
+      werase(inputWin);
+      wrefresh(inputWin);
+
+      if (line.empty()) {
+        continue;
+      }
+
+      std::istringstream input(line);
+      std::string command;
+      input >> command;
+
+      if (command == "/quit") {
+        std::string extra;
+
+        if (input >> extra) {
+          return {ConsoleInputStatus::InvalidCommand, "Usage: /quit"};
+        }
+
+        return {ConsoleInputStatus::Quit, ""};
+      }
+
+      if (command.front() == '/') {
+        return {ConsoleInputStatus::InvalidCommand,
+                "Unknown command: " + command};
+      }
+
+      return {ConsoleInputStatus::Message, line};
+    }
+
+    if (ch == KEY_BACKSPACE || ch == 127 || ch == '\b') {
+      if (!input_buffer.empty()) {
+        input_buffer.pop_back();
+      }
+    } else if (ch >= 0 && ch <= UCHAR_MAX &&
+               std::isprint(static_cast<unsigned char>(ch))) {
+      if (input_buffer.size() < 1024) {
+        input_buffer.push_back(static_cast<char>(ch));
+      }
+    }
+
+    werase(inputWin);
+    mvwaddnstr(inputWin, 0, 0, input_buffer.c_str(),
+               static_cast<int>(input_buffer.size()));
+    wrefresh(inputWin);
+  }
+
+  return {ConsoleInputStatus::NoInput, ""};
+}
+
+std::string read_server_ip() {
+
+  std::array<char, 64> buffer{};
+
+  printw("Enter server IP (Enter for localhost 127.0.0.1): ");
+  refresh();
+
+  echo();
+
+  int result = getnstr(buffer.data(), static_cast<int>(buffer.size() - 1));
+
+  noecho();
+
+  if (result == ERR)
+    return {};
+
+  std::string ip(buffer.data());
+
+  auto first = ip.find_first_not_of(" \t\r\n");
+
+  if (first == std::string::npos)
+    return {};
+
+  auto last = ip.find_last_not_of(" \t\r\n");
+
+  std::string data = ip.substr(first, last - first + 1);
+
+  if (data.empty())
+    data = "127.0.0.1";
+
+  return data;
 }

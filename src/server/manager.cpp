@@ -278,3 +278,12 @@ void ClientManager::for_each_connection(
     callback(fd, connection);
   }
 }
+
+ClientConnection *ClientManager::find_connection(int fd) {
+  auto it = connections_.find(fd);
+
+  if (it != connections_.end())
+    return &it->second;
+
+  return nullptr;
+}
