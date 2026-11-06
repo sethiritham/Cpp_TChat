@@ -57,30 +57,43 @@ SSL_CTX *ServerApp::init_server_ssl_context() {
 void ServerApp::handle_login_case(VerifyClientStatus status,
                                   ClientConnection *connection) {
 
+  if (!connection) {
+    return;
+  }
+
   switch (status) {
+
   case VerifyClientStatus::Authorized: {
     connection->status = ConnectionStatus::Authenticated;
     auto token = generate_token();
     auto auth_packet = create_packet_stream(PacketType::Ack, "OK|" + token);
     queue_write(connection, auth_packet);
+    enable_write_event(p_kq, connection->fd);
     break;
   }
+
   case VerifyClientStatus::NotAuthorized: {
     auto error_packet = create_packet_stream(PacketType::Ack, "NO");
     queue_write(connection, error_packet);
     connection->status = ConnectionStatus::Closing;
+    enable_write_event(p_kq, connection->fd);
     break;
   }
+
   case VerifyClientStatus::UserNotFound: {
     auto error_packet = create_packet_stream(PacketType::Ack, "NO");
     queue_write(connection, error_packet);
     connection->status = ConnectionStatus::Closing;
+    enable_write_event(p_kq, connection->fd);
     break;
   }
+
   case VerifyClientStatus::ExecFailed: {
+
     auto error_packet = create_packet_stream(PacketType::Error, "ERR");
     queue_write(connection, error_packet);
     connection->status = ConnectionStatus::Closing;
+    enable_write_event(p_kq, connection->fd);
     break;
   }
   }
@@ -91,25 +104,39 @@ void ServerApp::handle_register_client_status(RegisterClientStatus status,
 
   switch (status) {
   case RegisterClientStatus::ExecFailed: {
+
+    print_message("SQL execution failed!", PrintKind::Server);
     client_manager_.disconnect(connection);
     break;
   }
   case RegisterClientStatus::ClientRegistered: {
-    auto ack_packet = create_packet_stream(PacketType::Register, "OK");
+
+    print_message("Client has been registered", PrintKind::Server);
+
+    auto ack_packet = create_packet_stream(PacketType::Ack, "OK");
+
     queue_write(connection, ack_packet);
+
+    enable_write_event(p_kq, connection->fd);
+
     break;
   }
   case RegisterClientStatus::UnableToOpenDatabase: {
+
+    print_message("Unable to open database", PrintKind::Error);
     client_manager_.disconnect(connection);
-    // log error, disconnect
     break;
   }
   case RegisterClientStatus::UsernameExists: {
+    print_message("Username already exists, unable to register client",
+                  PrintKind::Error);
     client_manager_.disconnect(connection);
     // log error, disconnect
     break;
   }
   default: {
+    print_message("Unable to register client, reason unknown",
+                  PrintKind::Error);
     client_manager_.disconnect(connection);
     // unknown error, disconnect
     break;
@@ -140,6 +167,7 @@ void ServerApp::handle_handshake_client(HandshakeResult result,
     break;
   }
   case HandshakeKind::Register: {
+    print_message("In case: [HandshakeKind::Register]", PrintKind::Server);
     RegisterClientStatus status;
     status = register_client(result.request.username, result.request.password);
 
@@ -199,7 +227,6 @@ void ServerApp::handle_handshake_stream_status(HandshakeResult handshake_result,
   }
   case HandshakeStreamStatus::ValidAuthPacket: {
     handle_handshake_client(handshake_result, connection);
-    client_manager_.disconnect(connection);
     break;
   }
   default: {
@@ -408,32 +435,61 @@ void handle_disconnect_status(DisconnectStatus status) {
 
 void ServerApp::handle_flush_result(FlushResult result,
                                     ClientConnection *connection) {
+
+  if (!connection)
+    return;
+
   switch (result) {
+
   case FlushResult::FatalError: {
+
     DisconnectStatus status = client_manager_.disconnect(connection);
+
     handle_disconnect_status(status);
     return;
   }
+
   case FlushResult::QueueEmpty: {
+
+    connection->write_waiting_for_read = false;
 
     if (connection->status == ConnectionStatus::Closing) {
 
       DisconnectStatus status = client_manager_.disconnect(connection);
-      handle_disconnect_status(status);
 
+      handle_disconnect_status(status);
       return;
     }
-  }
-  case FlushResult::ReadWait: {
-    connection->write_waiting_for_read = true;
+
+    // Keep EVFILT_WRITE if an SSL_read is waiting for it.
+    if (!connection->read_waiting_for_write) {
+      disable_write_event(p_kq, connection->fd);
+    }
+
     return;
   }
+
+  case FlushResult::ReadWait: {
+
+    connection->write_waiting_for_read = true;
+
+    // Wait for READ readiness before retrying SSL_write.
+    disable_write_event(p_kq, connection->fd);
+
+    return;
+  }
+
   case FlushResult::WriteWait: {
+
+    connection->write_waiting_for_read = false;
+
+    // SSL_write needs WRITE readiness.
+    enable_write_event(p_kq, connection->fd);
+
     return;
   }
   }
 }
-
 void ServerApp::client_connection_event() {
 
   AcceptClientStatus status =
@@ -520,8 +576,9 @@ int ServerApp::initialize() {
   print_message(msg, PrintKind::Server);
 
   p_event_list.reserve(32);
+  p_event_list.resize(32);
 
-  create_table();
+  create_user_database();
 
   std::string input_buffer;
   p_running = true;

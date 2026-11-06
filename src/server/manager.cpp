@@ -208,7 +208,8 @@ void ClientManager::mark_timed_out_connections() {
   std::vector<int> timed_out_fds;
 
   for (auto &[fd, connection] : connections_) {
-    if (connection.status == ConnectionStatus::Closing)
+    if (connection.status == ConnectionStatus::Closing ||
+        connection.status == ConnectionStatus::AwaitingAuth)
       continue;
 
     if (Clock::now() - connection.last_seen >= std::chrono::seconds(10)) {

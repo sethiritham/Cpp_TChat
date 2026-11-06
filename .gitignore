@@ -7,4 +7,5 @@ kqueue_example.cpp
 server.crt
 server.key
 *.db
+*.DS_Store
 

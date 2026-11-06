@@ -3,12 +3,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 #include <string>
 #include <vector>
 
 HandshakeResult process_handshake_packet(std::vector<uint8_t> &rx_buffer) {
-  PacketHeader header;
-  HandshakeResult result;
+
+  PacketHeader header{};
+  HandshakeResult result{};
   result.request.kind = HandshakeKind::Error;
 
   if (rx_buffer.size() < sizeof(PacketHeader)) {
@@ -18,19 +20,19 @@ HandshakeResult process_handshake_packet(std::vector<uint8_t> &rx_buffer) {
 
   std::memcpy(&header, rx_buffer.data(), sizeof(PacketHeader));
 
-  if (ntohs(header.magic) != PROTOCOL_KEY) {
+  const uint16_t magic = ntohs(header.magic);
+  const uint8_t packet_type = static_cast<uint8_t>(header.type);
+  const uint32_t payload_length = ntohl(header.payload_length);
+
+  const size_t total_size = sizeof(PacketHeader) + payload_length;
+
+  if (magic != PROTOCOL_KEY) {
     result.status = HandshakeStreamStatus::InvalidProtocolError;
     return result;
   }
 
-  char payload[512];
-  int payload_length = ntohl(header.payload_length);
-
-  size_t total_size = payload_length + sizeof(PacketHeader);
-
   if (total_size > MAX_HANDSHAKE_PAYLOAD || payload_length == 0) {
     result.status = HandshakeStreamStatus::InvalidAuthPacket;
-    result.request.kind = HandshakeKind::Error;
     return result;
   }
 
@@ -39,33 +41,33 @@ HandshakeResult process_handshake_packet(std::vector<uint8_t> &rx_buffer) {
     return result;
   }
 
-  std::memcpy(payload, rx_buffer.data() + sizeof(PacketHeader), payload_length);
+  // Construct a length-aware string instead of using char[512].
+  std::string message(
+      reinterpret_cast<const char *>(rx_buffer.data() + sizeof(PacketHeader)),
+      payload_length);
 
   rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + total_size);
 
-  payload[payload_length] = '\0';
+  size_t delimiter = message.find('|');
 
-  std::string message = std::string(payload);
+  if (delimiter == std::string::npos) {
 
-  size_t delimeter = message.find("|");
-
-  if (delimeter == std::string::npos) {
     result.status = HandshakeStreamStatus::InvalidAuthPacket;
-    result.request.kind = HandshakeKind::Error;
     return result;
   }
 
-  std::string username = message.substr(0, delimeter);
-  std::string password = message.substr(delimeter + 1);
+  std::string username = message.substr(0, delimiter);
+  std::string password = message.substr(delimiter + 1);
 
-  switch (static_cast<PacketType>(header.type)) {
-  case PacketType::Login: {
+  switch (static_cast<PacketType>(packet_type)) {
+
+  case PacketType::Login:
     result.request.kind = HandshakeKind::Login;
     result.request.username = username;
     result.request.password = password;
     result.status = HandshakeStreamStatus::ValidAuthPacket;
     break;
-  }
+
   case PacketType::Reconnnect:
     result.request.kind = HandshakeKind::Reconnect;
     result.request.username = username;

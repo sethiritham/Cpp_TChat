@@ -43,20 +43,18 @@ struct ClientConnection {
 
   ConnectionStatus status = ConnectionStatus::AwaitingAuth;
 
+  ClientConnection() = default;
+
   ClientConnection(int fd, SSL *ssl) : fd(fd), ssl(ssl) {}
 };
 
 class ConnectionManager {
 public:
-  ClientConnection *connection = nullptr;
+  ClientConnection connection;
 
 public:
-  ConnectionManager() = default;
-
   EstablishConnectionStatus establish_connection(SSL_CTX *ctx,
                                                  sockaddr_in serverAddress);
 
   void close_connection();
-
-  ~ConnectionManager() { delete connection; }
 };

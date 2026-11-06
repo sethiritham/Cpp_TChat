@@ -2,7 +2,14 @@
 #include "client/connection.hpp"
 #include "common/protocol.hpp"
 #include "common/ui.hpp"
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <iostream>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <sstream>
+#include <sys/socket.h>
 
 void queue_write(ClientConnection *connection,
                  const std::vector<uint8_t> &data) {
@@ -128,24 +135,48 @@ FlushResult flush_write(ClientConnection *connection) {
 
 ReadResult handle_read(ClientConnection *connection) {
 
-  if (!connection || !connection->ssl)
+  if (!connection) {
     return ReadResult::FatalError;
+  }
 
-  if (connection->status == ConnectionStatus::Closing)
+  if (connection->fd < 0) {
+    return ReadResult::FatalError;
+  }
+
+  if (!connection->ssl) {
+    return ReadResult::FatalError;
+  }
+
+  // 2. Inspect socket configuration
+  int flags = fcntl(connection->fd, F_GETFL, 0);
+
+  if (flags == -1) {
+    std::cerr << "[READ] fcntl failed: " << strerror(errno) << '\n';
+  } else {
+    std::cerr << "[READ] Socket mode: "
+              << ((flags & O_NONBLOCK) ? "NON-BLOCKING" : "BLOCKING") << '\n';
+  }
+
+  // 3. Check connection state
+  if (connection->status == ConnectionStatus::Closing) {
     return ReadResult::Ignored;
+  }
 
   std::array<uint8_t, MAX_MESSAGE_PAYLOAD_SIZE> buffer{};
 
   while (true) {
 
+    // Clear previous OpenSSL errors before this operation.
     ERR_clear_error();
     errno = 0;
 
     int bytes_read = SSL_read(connection->ssl, buffer.data(),
                               static_cast<int>(buffer.size()));
 
+    // Save errno immediately.
     int saved_errno = errno;
 
+    // 4. Successful read
     if (bytes_read > 0) {
 
       connection->rx_buffer.insert(connection->rx_buffer.end(), buffer.begin(),
@@ -156,25 +187,125 @@ ReadResult handle_read(ClientConnection *connection) {
       return ReadResult::DataReceived;
     }
 
+    // 5. IMPORTANT: Must immediately follow failed SSL_read.
     int error = SSL_get_error(connection->ssl, bytes_read);
 
-    if (error == SSL_ERROR_WANT_READ) {
+    std::cerr << "[READ] SSL_get_error returned: " << error << '\n';
+
+    std::cerr << "[READ] errno: " << saved_errno << " ("
+              << strerror(saved_errno) << ")\n";
+
+    // 6. Print OpenSSL error queue when relevant.
+    auto print_openssl_errors = []() {
+      unsigned long code;
+      bool found = false;
+
+      while ((code = ERR_get_error()) != 0) {
+
+        found = true;
+
+        char error_buffer[256]{};
+
+        ERR_error_string_n(code, error_buffer, sizeof(error_buffer));
+
+        std::cerr << "[READ] OpenSSL error: " << error_buffer << '\n';
+      }
+
+      if (!found) {
+        std::cerr << "[READ] OpenSSL error queue is empty\n";
+      }
+    };
+
+    // 7. Classify the error
+    switch (error) {
+
+    case SSL_ERROR_NONE:
+
+      std::cerr << "[READ] SSL_ERROR_NONE despite failed read\n";
+      return ReadResult::FatalError;
+
+    case SSL_ERROR_WANT_READ:
+
+      std::cerr << "[READ] SSL_ERROR_WANT_READ\n";
+
       connection->read_waiting_for_write = false;
+
       return ReadResult::WantRead;
-    }
 
-    if (error == SSL_ERROR_WANT_WRITE) {
+    case SSL_ERROR_WANT_WRITE:
+
+      std::cerr << "[READ] SSL_ERROR_WANT_WRITE\n";
+
       connection->read_waiting_for_write = true;
-      return ReadResult::WantWrite;
-    }
 
-    if (error == SSL_ERROR_ZERO_RETURN)
+      return ReadResult::WantWrite;
+
+    case SSL_ERROR_ZERO_RETURN:
+
+      std::cerr << "[READ] SSL_ERROR_ZERO_RETURN\n";
+      std::cerr << "[READ] Peer sent TLS close_notify\n";
+
+      std::cerr << "[READ] SSL shutdown flags: "
+                << SSL_get_shutdown(connection->ssl) << '\n';
+
       return ReadResult::ConnectionClosed;
 
-    if (error == SSL_ERROR_SYSCALL && saved_errno == EINTR)
-      continue;
+    case SSL_ERROR_SYSCALL: {
 
-    return ReadResult::FatalError;
+      std::cerr << "[READ] SSL_ERROR_SYSCALL\n";
+
+      // Inspect the underlying socket error.
+      int socket_error = 0;
+      socklen_t socket_error_length = sizeof(socket_error);
+
+      if (getsockopt(connection->fd, SOL_SOCKET, SO_ERROR, &socket_error,
+                     &socket_error_length) == 0) {
+
+        std::cerr << "[READ] SO_ERROR: " << socket_error << " ("
+                  << strerror(socket_error) << ")\n";
+
+      } else {
+        std::cerr << "[READ] getsockopt failed: " << strerror(errno) << '\n';
+      }
+
+      print_openssl_errors();
+
+      if (saved_errno == EINTR) {
+        std::cerr << "[READ] Interrupted system call. Retrying...\n";
+        continue;
+      }
+
+      if (saved_errno == EAGAIN || saved_errno == EWOULDBLOCK) {
+
+        std::cerr << "[READ] Socket would block\n";
+        return ReadResult::WantRead;
+      }
+
+      if (saved_errno == 0) {
+        std::cerr << "[READ] Unexpected EOF or connection "
+                     "closed without proper TLS shutdown\n";
+      }
+
+      return ReadResult::FatalError;
+    }
+
+    case SSL_ERROR_SSL:
+
+      std::cerr << "[READ] SSL_ERROR_SSL\n";
+      std::cerr << "[READ] TLS protocol/internal SSL failure\n";
+
+      print_openssl_errors();
+
+      return ReadResult::FatalError;
+
+    default:
+
+      std::cerr << "[READ] UNKNOWN SSL ERROR: " << error << '\n';
+
+      print_openssl_errors();
+
+      return ReadResult::FatalError;
+    }
   }
 }
 
@@ -257,14 +388,9 @@ std::string read_server_ip() {
   auto first = ip.find_first_not_of(" \t\r\n");
 
   if (first == std::string::npos)
-    return {};
+    return "127.0.0.1";
 
   auto last = ip.find_last_not_of(" \t\r\n");
 
-  std::string data = ip.substr(first, last - first + 1);
-
-  if (data.empty())
-    data = "127.0.0.1";
-
-  return data;
+  return ip.substr(first, last - first + 1);
 }

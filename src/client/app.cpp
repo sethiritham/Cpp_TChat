@@ -48,12 +48,10 @@ bool ClientApp::handle_establish_connection_status(
 }
 
 DisconnectStatus ClientApp::disconnect() {
+
   auto &connection = p_manager.connection;
 
-  if (!connection)
-    return DisconnectStatus::FailedToDisconnect;
-
-  if (connection->fd < 0 && connection->ssl == nullptr) {
+  if (connection.fd < 0 && connection.ssl == nullptr) {
     p_state = SessionState::Disconnected;
     return DisconnectStatus::AlreadyDisconnected;
   }
@@ -80,7 +78,7 @@ LoginAction ClientApp::handle_login_result(LoginResult result) {
     break;
   case LoginStatus::Success:
     p_state = SessionState::Connected;
-    p_manager.connection->status = ConnectionStatus::Authenticated;
+    p_manager.connection.status = ConnectionStatus::Authenticated;
 
     p_username = result.username;
     p_token = result.token;
@@ -114,7 +112,7 @@ bool ClientApp::perform_login_action(LoginAction action) {
       if (!handle_establish_connection_status(status))
         return false;
 
-      LoginResult result = login_client(p_manager.connection);
+      LoginResult result = login_client(&p_manager.connection);
       action = handle_login_result(result);
       continue;
     }
@@ -124,14 +122,14 @@ bool ClientApp::perform_login_action(LoginAction action) {
 
 void ClientApp::enable_write_event() {
   struct kevent ev{};
-  EV_SET(&ev, p_manager.connection->fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0,
+  EV_SET(&ev, p_manager.connection.fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0,
          nullptr);
   kevent(p_kq, &ev, 1, nullptr, 0, nullptr);
 }
 
 void ClientApp::disable_write_event() {
   struct kevent ev{};
-  EV_SET(&ev, p_manager.connection->fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
+  EV_SET(&ev, p_manager.connection.fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
   kevent(p_kq, &ev, 1, nullptr, 0, nullptr);
 }
 
@@ -139,15 +137,15 @@ bool ClientApp::init_chat() {
 
   auto &connection = p_manager.connection;
 
-  if (connection->fd < 0 || !connection->ssl)
+  if (connection.fd < 0 || !connection.ssl)
     return false;
 
-  if (connection->status != ConnectionStatus::Authenticated)
+  if (connection.status != ConnectionStatus::Authenticated)
     return false;
 
-  connection->last_server_activity = ClientConnection::Clock::now();
+  connection.last_server_activity = ClientConnection::Clock::now();
 
-  if (!set_nonblocking(connection->fd))
+  if (!set_nonblocking(connection.fd))
     return false;
 
   if (!set_nonblocking(STDIN_FILENO))
@@ -162,7 +160,7 @@ bool ClientApp::init_chat() {
 
   struct kevent evs[3];
 
-  EV_SET(&evs[0], connection->fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
+  EV_SET(&evs[0], connection.fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0,
          nullptr);
 
   EV_SET(&evs[1], STDIN_FILENO, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
@@ -197,7 +195,7 @@ bool ClientApp::handle_process_stream_result(ProcessStreamResult result,
     return false;
 
   case ProcessStreamResult::ReceivedPong:
-    p_manager.connection->last_server_activity = ClientConnection::Clock::now();
+    p_manager.connection.last_server_activity = ClientConnection::Clock::now();
     return true;
 
   case ProcessStreamResult::PrintMessage:
@@ -235,7 +233,7 @@ void ClientApp::handle_read_result(ReadResult result) {
     break;
   }
   case ReadResult::WantWrite: {
-    connection->read_waiting_for_write = true;
+    connection.read_waiting_for_write = true;
     enable_write_event();
 
     break;
@@ -260,7 +258,7 @@ void ClientApp::process_received_data() {
     std::string message;
 
     ProcessStreamResult result =
-        process_data_stream(connection->rx_buffer, message);
+        process_data_stream(connection.rx_buffer, message);
 
     if (!handle_process_stream_result(result, message)) {
       return;
@@ -281,19 +279,19 @@ void ClientApp::handle_flush_result(FlushResult result) {
 
   case FlushResult::QueueEmpty:
 
-    if (connection->status == ConnectionStatus::Closing) {
+    if (connection.status == ConnectionStatus::Closing) {
       disconnect();
       return;
     }
 
-    if (!connection->read_waiting_for_write)
+    if (!connection.read_waiting_for_write)
       disable_write_event();
 
     return;
 
   case FlushResult::ReadWait:
 
-    connection->write_waiting_for_read = true;
+    connection.write_waiting_for_read = true;
     disable_write_event();
     return;
 
@@ -316,7 +314,7 @@ void ClientApp::handle_timer_event() {
 
   auto now = ClientConnection::Clock::now();
 
-  if (now - connection->last_server_activity >= std::chrono::seconds(10)) {
+  if (now - connection.last_server_activity >= std::chrono::seconds(10)) {
 
     print_message("Server heartbeat timeout.", PrintKind::Error);
 
@@ -327,9 +325,9 @@ void ClientApp::handle_timer_event() {
 
   auto ping = create_packet_stream(PacketType::Ping, "");
 
-  bool was_empty = connection->tx_queue.empty();
+  bool was_empty = connection.tx_queue.empty();
 
-  queue_write(connection, ping);
+  queue_write(&connection, ping);
 
   if (was_empty)
     enable_write_event();
@@ -338,25 +336,24 @@ void ClientApp::handle_timer_event() {
 void ClientApp::read_event() {
   auto &connection = p_manager.connection;
 
-  if (connection->read_waiting_for_write &&
-      connection->write_waiting_for_read) {
+  if (connection.read_waiting_for_write && connection.write_waiting_for_read) {
     // Invalid state: clean up or report the internal error.
     return;
   }
 
-  if (connection->read_waiting_for_write) {
+  if (connection.read_waiting_for_write) {
     return;
   }
 
-  if (connection->write_waiting_for_read) {
-    connection->write_waiting_for_read = false;
+  if (connection.write_waiting_for_read) {
+    connection.write_waiting_for_read = false;
 
-    FlushResult result = flush_write(connection);
+    FlushResult result = flush_write(&connection);
     handle_flush_result(result);
     return;
   }
 
-  ReadResult result = handle_read(connection);
+  ReadResult result = handle_read(&connection);
   handle_read_result(result);
 }
 
@@ -364,25 +361,24 @@ void ClientApp::write_event() {
 
   auto &connection = p_manager.connection;
 
-  if (connection->read_waiting_for_write &&
-      connection->write_waiting_for_read) {
+  if (connection.read_waiting_for_write && connection.write_waiting_for_read) {
     // Invalid state: clean up or report the internal error.
     return;
   }
 
-  if (connection->write_waiting_for_read) {
+  if (connection.write_waiting_for_read) {
     return;
   }
 
-  if (connection->read_waiting_for_write) {
-    connection->read_waiting_for_write = false;
+  if (connection.read_waiting_for_write) {
+    connection.read_waiting_for_write = false;
 
-    ReadResult result = handle_read(connection);
+    ReadResult result = handle_read(&connection);
     handle_read_result(result);
     return;
   }
 
-  FlushResult result = flush_write(connection);
+  FlushResult result = flush_write(&connection);
   handle_flush_result(result);
 }
 
@@ -393,9 +389,9 @@ void ClientApp::handle_console_input_result(ConsoleInputResult result) {
     auto &connection = p_manager.connection;
     auto broad_pkt = create_packet_stream(PacketType::Message, result.buffer);
 
-    bool was_empty = connection->tx_queue.empty();
+    bool was_empty = connection.tx_queue.empty();
 
-    queue_write(connection, broad_pkt);
+    queue_write(&connection, broad_pkt);
 
     if (was_empty)
       enable_write_event();
@@ -427,43 +423,75 @@ void ClientApp::console_write_event() {
   handle_console_input_result(result);
 }
 
+bool ClientApp::handle_register_status(RegisterStatus status) {
+
+  switch (status) {
+
+  case RegisterStatus::Registered:
+    return true;
+
+  case RegisterStatus::UserAlreadyExists:
+    print_message("Username already exists.", PrintKind::Error);
+    break;
+
+  case RegisterStatus::SQLErr:
+    print_message("Server database error.", PrintKind::Error);
+    break;
+
+  case RegisterStatus::ProtocolError:
+    print_message("Invalid server response.", PrintKind::Error);
+    break;
+
+  case RegisterStatus::ConnectionLost:
+    print_message("Connection lost during registration.", PrintKind::Error);
+    break;
+  }
+
+  disconnect();
+  return false;
+}
+
 bool ClientApp::initialize() {
 
   setupNcurses();
 
   signal(SIGPIPE, SIG_IGN);
 
-  std::cout << "[INIT] Initializing SSL context...\n";
-
   ssl_ctx_ = init_client_ssl_context();
 
   if (!ssl_ctx_) {
-    std::cerr << "[INIT] SSL context failed.\n";
     return false;
   }
-
-  std::cout << "[INIT] Initializing server address...\n";
 
   if (!init_serveraddr()) {
-    std::cerr << "[INIT] Server address initialization failed.\n";
     return false;
   }
-
-  std::cout << "[INIT] Establishing connection...\n";
 
   EstablishConnectionStatus status =
       p_manager.establish_connection(ssl_ctx_, p_server_addr);
 
   if (!handle_establish_connection_status(status)) {
-    std::cerr << "[INIT] Connection establishment failed. Status: "
-              << static_cast<int>(status) << '\n';
     return false;
   }
 
-  std::cout << "[INIT] Connection established successfully.\n";
-  std::cout << "[INIT] Starting login...\n";
+  printw("REEGISTER OR LOGIN\n");
+  printw("1 - REGISTER\n2 - LOGIN\n");
 
-  LoginResult result = login_client(p_manager.connection);
+  refresh();
+
+  int ch;
+  ch = getch();
+
+  if (ch == '1' || ch == 'r' || ch == 'R') {
+
+    RegisterStatus status = register_client(&p_manager.connection);
+    if (!handle_register_status(status)) {
+
+      return false;
+    }
+  }
+
+  LoginResult result = login_client(&p_manager.connection);
 
   LoginAction action = handle_login_result(result);
 

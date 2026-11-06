@@ -1,9 +1,7 @@
 #include "server/authorization.hpp"
 #include "bcrypt/bcrypt.h"
 #include "common/network.hpp"
-#include "common/ui.hpp"
 #include "server/io.hpp"
-#include "server/manager.hpp"
 #include "server/sql_helper.hpp"
 #include <string>
 
@@ -11,7 +9,7 @@ VerifyClientStatus verify_client(const std::string &username,
                                  const std::string &password) {
   sqlite3 *DB;
 
-  sqlite3_open("user_pass.db", &DB);
+  sqlite3_open("database/user_pass.db", &DB);
   std::string sql =
       "SELECT password_hash from users where username = ? LIMIT 1;";
 
@@ -46,7 +44,7 @@ RegisterClientStatus register_client(const std::string &username,
 
   sqlite3 *DB;
 
-  int exit = sqlite3_open("user_pass.db", &DB);
+  int exit = sqlite3_open("database/user_pass.db", &DB);
 
   if (exit != SQLITE_OK) {
     sqlite3_close(DB);

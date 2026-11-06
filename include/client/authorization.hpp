@@ -30,6 +30,16 @@ struct LoginResult {
   std::string token;
 };
 
+enum class RegisterStatus {
+  Registered,
+  UserAlreadyExists,
+  SQLErr,
+  ProtocolError,
+  ConnectionLost
+};
+
 struct ClientConnection;
 
 LoginResult login_client(ClientConnection *connection);
+
+RegisterStatus register_client(ClientConnection *connection);

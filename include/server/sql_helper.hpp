@@ -3,6 +3,8 @@
 #include <sqlite3.h>
 #include <string>
 
+inline constexpr const char *USER_DATABASE_PATH = "database/user_pass.db";
+
 /**
  * @brief executes a given SQL command query
  * @param sql_cmnd SQL query
@@ -15,4 +17,4 @@ int exec_sql(const std::string &sql_cmnd, sqlite3 *DB);
  * @brief Create the user_pass table
  * @return true for success, false for faliure
  */
-bool create_table();
+bool create_user_database();

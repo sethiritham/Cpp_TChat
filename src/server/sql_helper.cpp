@@ -1,5 +1,5 @@
 #include "server/sql_helper.hpp"
-#include "common/ui.hpp"
+#include <filesystem>
 #include <iostream>
 
 int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
@@ -17,26 +17,56 @@ int exec_sql(const std::string &sql_cmnd, sqlite3 *DB) {
   }
 }
 
-bool create_table() {
-  sqlite3 *DB;
+bool create_user_database() {
 
-  int exit = sqlite3_open("database/user_pass.db", &DB);
-  if (exit != SQLITE_OK) {
-    std::cout << "UNABLE TO OPEN DATABASE" << std::endl;
-    return -1;
+  std::error_code ec;
+
+  std::filesystem::create_directories("database", ec);
+
+  if (ec) {
+    std::fprintf(stderr, "Database directory error: %s\n",
+                 ec.message().c_str());
+    return false;
   }
 
-  std::string sql = "CREATE TABLE IF NOT EXISTS users ("
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    "username TEXT UNIQUE NOT NULL,"
-                    "password_hash TEXT NOT NULL,"
-                    "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-                    ");";
+  sqlite3 *DB = nullptr;
 
-  if (exec_sql(sql, DB) != SQLITE_OK) {
+  int result = sqlite3_open(USER_DATABASE_PATH, &DB);
+
+  if (result != SQLITE_OK) {
+    std::fprintf(stderr, "Database open failed: %s\n",
+                 DB ? sqlite3_errmsg(DB) : "Unable to allocate database");
+
+    if (DB)
+      sqlite3_close(DB);
+
+    return false;
+  }
+
+  const char *sql = R"(
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL
+        );
+    )";
+
+  char *error_message = nullptr;
+
+  result = sqlite3_exec(DB, sql, nullptr, nullptr, &error_message);
+
+  if (result != SQLITE_OK) {
+
+    std::fprintf(stderr, "Database initialization failed: %s\n",
+                 error_message ? error_message : sqlite3_errmsg(DB));
+
+    sqlite3_free(error_message);
+    sqlite3_close(DB);
+
     return false;
   }
 
   sqlite3_close(DB);
+
   return true;
 }

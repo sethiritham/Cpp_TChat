@@ -84,6 +84,8 @@ private:
 
   void disable_write_event();
 
+  bool handle_register_status(RegisterStatus status);
+
   bool init_chat();
 
   bool handle_process_stream_result(ProcessStreamResult result,

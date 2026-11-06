@@ -21,19 +21,35 @@ ConnectionManager::establish_connection(SSL_CTX *ctx,
     return EstablishConnectionStatus::HandshakeFailed;
   }
 
-  connection->ssl = ssl;
-  connection->status = ConnectionStatus::AwaitingAuth;
-
-  connection = new ClientConnection(fd, ssl);
+  connection.fd = fd;
+  connection.ssl = ssl;
+  connection.status = ConnectionStatus::AwaitingAuth;
 
   return EstablishConnectionStatus::Established;
 }
 
 void ConnectionManager::close_connection() {
 
-  if (connection->ssl) {
-    SSL_free(connection->ssl);
-  }
+  auto &connection = this->connection;
 
-  close(connection->fd);
+  SSL *ssl = connection.ssl;
+  int fd = connection.fd;
+
+  connection.ssl = nullptr;
+  connection.fd = -1;
+
+  connection.status = ConnectionStatus::Closing;
+
+  connection.tx_queue.clear();
+  connection.rx_buffer.clear();
+  connection.tx_offset = 0;
+
+  connection.read_waiting_for_write = false;
+  connection.write_waiting_for_read = false;
+
+  if (ssl)
+    SSL_free(ssl);
+
+  if (fd >= 0)
+    close(fd);
 }
