@@ -51,7 +51,7 @@ void queue_write(ClientConnection *connection,
 
 FlushResult flush_write(ClientConnection *connection);
 
-void broadcast(int sender_fd, const std::vector<uint8_t> &packet,
-               ClientManager &manager);
+std::vector<int> broadcast(int sender_fd, const std::vector<uint8_t> &packet,
+                           ClientManager &manager);
 
 ReadResult handle_read(ClientConnection *connection);

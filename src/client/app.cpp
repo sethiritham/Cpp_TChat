@@ -182,33 +182,37 @@ bool ClientApp::init_chat() {
   return true;
 }
 
-bool ClientApp::handle_process_stream_result(ProcessStreamResult result,
-                                             const std::string &message) {
-  switch (result) {
+bool ClientApp::handle_process_stream_result(ProcessStreamResult result) {
+  switch (result.status) {
 
-  case ProcessStreamResult::BufferEmpty:
-  case ProcessStreamResult::IncompletePacket:
+  case ProcessStreamStatus::BufferEmpty:
+  case ProcessStreamStatus::IncompletePacket:
     return true;
 
-  case ProcessStreamResult::InvalidProtocolError:
+  case ProcessStreamStatus::InvalidProtocolError:
     print_message("Invalid server packet", PrintKind::Error);
     disconnect();
     return false;
 
-  case ProcessStreamResult::ReceivedPong:
+  case ProcessStreamStatus::ReceivedPong:
     p_manager.connection.last_server_activity = ClientConnection::Clock::now();
     return true;
 
-  case ProcessStreamResult::PrintMessage:
-    print_message(message, PrintKind::Self);
+  case ProcessStreamStatus::PrintMessage:
+    if (result.sender == "SERVER") {
+      print_message(result.message, PrintKind::Server);
+    } else {
+
+      print_message(result.message, PrintKind::Client, result.sender);
+    }
     return true;
 
-  case ProcessStreamResult::Acknowledgement:
-    print_message(message, PrintKind::Server);
+  case ProcessStreamStatus::Acknowledgement:
+    print_message(result.message, PrintKind::Server);
     return true;
 
-  case ProcessStreamResult::ErrorAck:
-    print_message(message, PrintKind::Error);
+  case ProcessStreamStatus::ErrorAck:
+    print_message(result.message, PrintKind::Error);
     return true;
   }
 
@@ -256,17 +260,14 @@ void ClientApp::process_received_data() {
 
   while (true) {
 
-    std::string message;
+    ProcessStreamResult result = process_data_stream(connection.rx_buffer);
 
-    ProcessStreamResult result =
-        process_data_stream(connection.rx_buffer, message);
-
-    if (!handle_process_stream_result(result, message)) {
+    if (!handle_process_stream_result(result)) {
       return;
     }
 
-    if (result == ProcessStreamResult::BufferEmpty ||
-        result == ProcessStreamResult::IncompletePacket) {
+    if (result.status == ProcessStreamStatus::BufferEmpty ||
+        result.status == ProcessStreamStatus::IncompletePacket) {
       return;
     }
   }

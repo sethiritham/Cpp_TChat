@@ -88,8 +88,7 @@ private:
 
   bool init_chat();
 
-  bool handle_process_stream_result(ProcessStreamResult result,
-                                    const std::string &message);
+  bool handle_process_stream_result(ProcessStreamResult result);
 
   void handle_read_result(ReadResult result);
 

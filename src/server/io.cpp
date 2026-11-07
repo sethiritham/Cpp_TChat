@@ -78,15 +78,26 @@ FlushResult flush_write(ClientConnection *connection) {
   return FlushResult::QueueEmpty;
 }
 
-void broadcast(int sender_fd, const std::vector<uint8_t> &packet,
-               ClientManager &manager) {
+std::vector<int> broadcast(int sender_fd, const std::vector<uint8_t> &packet,
+                           ClientManager &manager) {
+
+  std::vector<int> write_fds;
+
   manager.for_each_connection([&](int fd, ClientConnection &connection) {
-    if (fd == sender_fd) {
+    if (fd == sender_fd)
       return;
-    }
+
+    if (connection.status != ConnectionStatus::Authenticated)
+      return;
 
     queue_write(&connection, packet);
+
+    if (!connection.write_waiting_for_read) {
+      write_fds.push_back(fd);
+    }
   });
+
+  return write_fds;
 }
 
 ReadResult handle_read(ClientConnection *connection) {

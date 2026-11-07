@@ -286,8 +286,17 @@ void ServerApp::handle_process_stream_result(const ProcessStreamResult &result,
     return;
   }
   case ProcessStreamResult::PrintMessage: {
-    auto packet = create_packet_stream(PacketType::Message, message);
-    broadcast(session->connection->fd, packet, client_manager_);
+    std::string payload = "U|" + session->username + "|" + message;
+
+    auto packet = create_packet_stream(PacketType::Message, payload);
+
+    auto write_fds =
+        broadcast(session->connection->fd, packet, client_manager_);
+
+    for (int fd : write_fds) {
+      enable_write_event(p_kq, fd);
+    }
+
     print_message(message, PrintKind::Client, session->username);
     return;
   }
@@ -419,8 +428,15 @@ void ServerApp::handle_kick_status(KickStatus status,
 void ServerApp::handle_console_input_result(ConsoleInputResult result) {
   switch (result.status) {
   case ConsoleInputStatus::Message: {
-    auto broad_pkt = create_packet_stream(PacketType::Message, result.buffer);
-    broadcast(-1, broad_pkt, client_manager_);
+    std::string payload = "S|" + result.buffer;
+
+    auto broad_pkt = create_packet_stream(PacketType::Message, payload);
+
+    auto write_fds = broadcast(-1, broad_pkt, client_manager_);
+
+    for (int fd : write_fds) {
+      enable_write_event(p_kq, fd);
+    }
     print_message(result.buffer, PrintKind::Self);
     return;
   }

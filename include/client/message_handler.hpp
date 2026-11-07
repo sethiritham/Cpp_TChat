@@ -1,6 +1,5 @@
+#include "common/protocol.hpp"
 #include <arpa/inet.h>
-#include <cerrno>
-#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -15,10 +14,11 @@
 #include <unistd.h>
 #include <vector>
 
-enum class ProcessStreamResult {
+enum class ProcessStreamStatus {
+
   BufferEmpty,
-  IncompletePacket,
   InvalidProtocolError,
+  IncompletePacket,
 
   PrintMessage,
   ReceivedPong,
@@ -26,5 +26,10 @@ enum class ProcessStreamResult {
   ErrorAck
 };
 
-ProcessStreamResult process_data_stream(std::vector<uint8_t> &rx_buffer,
-                                        std::string &message);
+struct ProcessStreamResult {
+  ProcessStreamStatus status;
+  std::string message;
+  std::string sender;
+};
+
+ProcessStreamResult process_data_stream(std::vector<uint8_t> &rx_buffer);

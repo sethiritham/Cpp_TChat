@@ -51,26 +51,25 @@ LoginResult login_client(ClientConnection *connection) {
       return result;
     }
 
-    std::string msg;
+    auto process_result = process_data_stream(connection->rx_buffer);
 
-    auto process_status = process_data_stream(connection->rx_buffer, msg);
-
-    if (process_status == ProcessStreamResult::IncompletePacket)
+    if (process_result.status == ProcessStreamStatus::IncompletePacket)
       continue;
 
-    if (process_status == ProcessStreamResult::InvalidProtocolError) {
+    if (process_result.status == ProcessStreamStatus::InvalidProtocolError) {
       result.status = LoginStatus::ProtocolError;
       return result;
     }
 
-    if (msg == "NO") {
+    if (process_result.message == "NO") {
       result.status = LoginStatus::AuthenticationRejected;
       return result;
     }
 
-    if (msg.rfind("OK|", 0) == 0 && msg.size() > 3) {
+    if (process_result.message.rfind("OK|", 0) == 0 &&
+        process_result.message.size() > 3) {
       result.username = username;
-      result.token = msg.substr(3);
+      result.token = process_result.message.substr(3);
       result.status = LoginStatus::Success;
       return result;
     }
@@ -133,12 +132,11 @@ RegisterStatus register_client(ClientConnection *connection) {
 
     std::string message;
 
-    ProcessStreamResult result =
-        process_data_stream(connection->rx_buffer, message);
+    ProcessStreamResult result = process_data_stream(connection->rx_buffer);
 
-    switch (result) {
+    switch (result.status) {
 
-    case ProcessStreamResult::Acknowledgement:
+    case ProcessStreamStatus::Acknowledgement:
 
       if (message == "OK") {
 
@@ -152,7 +150,7 @@ RegisterStatus register_client(ClientConnection *connection) {
 
       return RegisterStatus::ProtocolError;
 
-    case ProcessStreamResult::ErrorAck:
+    case ProcessStreamStatus::ErrorAck:
 
       if (message == "ERR") {
         return RegisterStatus::SQLErr;
@@ -160,8 +158,8 @@ RegisterStatus register_client(ClientConnection *connection) {
 
       return RegisterStatus::ProtocolError;
 
-    case ProcessStreamResult::BufferEmpty:
-    case ProcessStreamResult::IncompletePacket: {
+    case ProcessStreamStatus::BufferEmpty:
+    case ProcessStreamStatus::IncompletePacket: {
 
       ReadResult read_status = handle_read(connection);
 
@@ -189,13 +187,13 @@ RegisterStatus register_client(ClientConnection *connection) {
       break;
     }
 
-    case ProcessStreamResult::InvalidProtocolError:
+    case ProcessStreamStatus::InvalidProtocolError:
       return RegisterStatus::ProtocolError;
 
-    case ProcessStreamResult::PrintMessage:
+    case ProcessStreamStatus::PrintMessage:
       return RegisterStatus::ProtocolError;
 
-    case ProcessStreamResult::ReceivedPong:
+    case ProcessStreamStatus::ReceivedPong:
       return RegisterStatus::ProtocolError;
     }
   }
