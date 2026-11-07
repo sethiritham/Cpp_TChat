@@ -153,8 +153,6 @@ ReadResult handle_read(ClientConnection *connection) {
   if (flags == -1) {
     std::cerr << "[READ] fcntl failed: " << strerror(errno) << '\n';
   } else {
-    std::cerr << "[READ] Socket mode: "
-              << ((flags & O_NONBLOCK) ? "NON-BLOCKING" : "BLOCKING") << '\n';
   }
 
   // 3. Check connection state
@@ -166,17 +164,14 @@ ReadResult handle_read(ClientConnection *connection) {
 
   while (true) {
 
-    // Clear previous OpenSSL errors before this operation.
     ERR_clear_error();
     errno = 0;
 
     int bytes_read = SSL_read(connection->ssl, buffer.data(),
                               static_cast<int>(buffer.size()));
 
-    // Save errno immediately.
     int saved_errno = errno;
 
-    // 4. Successful read
     if (bytes_read > 0) {
 
       connection->rx_buffer.insert(connection->rx_buffer.end(), buffer.begin(),
@@ -187,15 +182,8 @@ ReadResult handle_read(ClientConnection *connection) {
       return ReadResult::DataReceived;
     }
 
-    // 5. IMPORTANT: Must immediately follow failed SSL_read.
     int error = SSL_get_error(connection->ssl, bytes_read);
 
-    std::cerr << "[READ] SSL_get_error returned: " << error << '\n';
-
-    std::cerr << "[READ] errno: " << saved_errno << " ("
-              << strerror(saved_errno) << ")\n";
-
-    // 6. Print OpenSSL error queue when relevant.
     auto print_openssl_errors = []() {
       unsigned long code;
       bool found = false;
@@ -207,8 +195,6 @@ ReadResult handle_read(ClientConnection *connection) {
         char error_buffer[256]{};
 
         ERR_error_string_n(code, error_buffer, sizeof(error_buffer));
-
-        std::cerr << "[READ] OpenSSL error: " << error_buffer << '\n';
       }
 
       if (!found) {
@@ -221,20 +207,15 @@ ReadResult handle_read(ClientConnection *connection) {
 
     case SSL_ERROR_NONE:
 
-      std::cerr << "[READ] SSL_ERROR_NONE despite failed read\n";
       return ReadResult::FatalError;
 
     case SSL_ERROR_WANT_READ:
-
-      std::cerr << "[READ] SSL_ERROR_WANT_READ\n";
 
       connection->read_waiting_for_write = false;
 
       return ReadResult::WantRead;
 
     case SSL_ERROR_WANT_WRITE:
-
-      std::cerr << "[READ] SSL_ERROR_WANT_WRITE\n";
 
       connection->read_waiting_for_write = true;
 
@@ -254,7 +235,6 @@ ReadResult handle_read(ClientConnection *connection) {
 
       std::cerr << "[READ] SSL_ERROR_SYSCALL\n";
 
-      // Inspect the underlying socket error.
       int socket_error = 0;
       socklen_t socket_error_length = sizeof(socket_error);
 

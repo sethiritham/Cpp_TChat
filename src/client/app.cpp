@@ -1,4 +1,5 @@
 #include "client/app.hpp"
+#include "common/ui.hpp"
 
 SSL_CTX *ClientApp::init_client_ssl_context() {
 
@@ -492,6 +493,9 @@ bool ClientApp::initialize() {
   }
 
   LoginResult result = login_client(&p_manager.connection);
+
+  cleanupNcurses();
+  setupNcurses();
 
   LoginAction action = handle_login_result(result);
 

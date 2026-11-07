@@ -103,16 +103,10 @@ RegisterStatus register_client(ClientConnection *connection) {
 
   std::string username = read_username(36);
 
-  std::cerr << "[REGISTER] Username collected"
-            << " | length = " << username.size() << '\n';
-
   printw("Password: ");
   refresh();
 
   std::string password = read_password(36);
-
-  std::cerr << "[REGISTER] Password collected"
-            << " | length = " << password.size() << '\n';
 
   std::string payload = username + "|" + password;
 

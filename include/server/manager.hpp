@@ -128,6 +128,8 @@ public:
 
   void check_client_timeout();
 
+  void add_session(ClientSession session);
+
   void for_each_connection(
       const std::function<void(int, ClientConnection &)> &callback);
 

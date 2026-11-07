@@ -1,10 +1,13 @@
 #include "server/manager.hpp"
 #include "common/network.hpp"
 #include "common/protocol.hpp"
+#include "common/ui.hpp"
 #include "server/io.hpp"
 #include <chrono>
 #include <ctime>
 #include <functional>
+#include <ios>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -167,15 +170,24 @@ KickStatus ClientManager::kick(const std::string &username) {
 }
 
 void ClientManager::pong(ClientConnection *connection) {
+
+  if (!connection || connection->fd < 0 || !connection->ssl) {
+    std::cerr << "[PONG] Invalid connection\n";
+    return;
+  }
+
   connection->last_seen = ClientConnection::Clock::now();
 
-  std::vector<uint8_t> pong_packet = create_packet_stream(PacketType::Pong, "");
+  auto pong_packet = create_packet_stream(PacketType::Pong, "");
+
   queue_write(connection, pong_packet);
 }
 
 ClientSession *
 ClientManager::find_sesssion_from_connection(ClientConnection *connection) {
+
   for (auto &[username, session] : sessions_) {
+
     if (session.connection == connection) {
       return &session;
     }
@@ -208,6 +220,11 @@ void ClientManager::mark_timed_out_connections() {
   std::vector<int> timed_out_fds;
 
   for (auto &[fd, connection] : connections_) {
+
+    const auto age =
+        std::chrono::duration<double>(Clock::now() - connection.last_seen)
+            .count();
+
     if (connection.status == ConnectionStatus::Closing ||
         connection.status == ConnectionStatus::AwaitingAuth)
       continue;
@@ -223,7 +240,12 @@ void ClientManager::remove_timed_out_connections() {
 
     auto current = it++;
 
-    if (current->second.status == ConnectionStatus::Closing) {
+    if (current->second.status == ConnectionStatus::AwaitingAuth)
+      continue;
+
+    if (current->second.status == ConnectionStatus::Closing &&
+        current->second.tx_queue.empty()) {
+
       disconnect(&current->second);
     }
   }
@@ -287,4 +309,8 @@ ClientConnection *ClientManager::find_connection(int fd) {
     return &it->second;
 
   return nullptr;
+}
+
+void ClientManager::add_session(ClientSession session) {
+  sessions_[session.username] = session;
 }

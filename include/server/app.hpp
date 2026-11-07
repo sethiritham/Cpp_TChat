@@ -42,7 +42,7 @@ private:
   SSL_CTX *init_server_ssl_context();
 
   void handle_login_case(VerifyClientStatus status,
-                         ClientConnection *connection);
+                         ClientConnection *connection, std::string username);
 
   void handle_register_client_status(RegisterClientStatus status,
                                      ClientConnection *connection);

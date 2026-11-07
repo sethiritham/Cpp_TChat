@@ -55,7 +55,8 @@ SSL_CTX *ServerApp::init_server_ssl_context() {
 }
 
 void ServerApp::handle_login_case(VerifyClientStatus status,
-                                  ClientConnection *connection) {
+                                  ClientConnection *connection,
+                                  std::string username) {
 
   if (!connection) {
     return;
@@ -64,9 +65,22 @@ void ServerApp::handle_login_case(VerifyClientStatus status,
   switch (status) {
 
   case VerifyClientStatus::Authorized: {
+    print_message("Client authorized, sending ack", PrintKind::Server);
+
+    ClientSession session;
     connection->status = ConnectionStatus::Authenticated;
+    connection->last_seen = ClientConnection::Clock::now();
     auto token = generate_token();
     auto auth_packet = create_packet_stream(PacketType::Ack, "OK|" + token);
+
+    session.username = username;
+    session.token = token;
+
+    session.connection = connection;
+    session.state = SessionState::Connected;
+
+    client_manager_.add_session(session);
+
     queue_write(connection, auth_packet);
     enable_write_event(p_kq, connection->fd);
     break;
@@ -152,7 +166,7 @@ void ServerApp::handle_handshake_client(HandshakeResult result,
     VerifyClientStatus status =
         verify_client(result.request.username, result.request.password);
 
-    handle_login_case(status, connection);
+    handle_login_case(status, connection, result.request.username);
 
     break;
   }
@@ -258,7 +272,17 @@ void ServerApp::handle_process_stream_result(const ProcessStreamResult &result,
     return;
   }
   case ProcessStreamResult::SendPong: {
+    if (!session) {
+      std::cerr << "[ERROR] Received PING but session is nullptr\n";
+      return;
+    }
+
+    if (!session->connection) {
+      std::cerr << "[ERROR] Received PING but session has no connection\n";
+      return;
+    }
     client_manager_.pong(session->connection);
+    enable_write_event(p_kq, session->connection->fd);
     return;
   }
   case ProcessStreamResult::PrintMessage: {
@@ -324,7 +348,6 @@ void ServerApp::read_event(ClientConnection *connection) {
 
   if (connection->read_waiting_for_write &&
       connection->write_waiting_for_read) {
-    // Invalid state: clean up or report the internal error.
     return;
   }
 
@@ -575,8 +598,8 @@ int ServerApp::initialize() {
   msg = "Active on PORT: 8080";
   print_message(msg, PrintKind::Server);
 
-  p_event_list.reserve(32);
-  p_event_list.resize(32);
+  p_event_list.reserve(MAX_EVENTS);
+  p_event_list.resize(MAX_EVENTS);
 
   create_user_database();
 
