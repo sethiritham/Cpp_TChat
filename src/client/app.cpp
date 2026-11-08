@@ -200,7 +200,7 @@ bool ClientApp::handle_process_stream_result(ProcessStreamResult result) {
 
   case ProcessStreamStatus::PrintMessage:
     if (result.sender == "SERVER") {
-      print_message(result.message, PrintKind::Server);
+      print_message(result.message, PrintKind::Admin);
     } else {
 
       print_message(result.message, PrintKind::Client, result.sender);

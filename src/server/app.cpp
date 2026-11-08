@@ -1,4 +1,5 @@
 #include "server/app.hpp"
+#include "common/protocol.hpp"
 #include "common/ui.hpp"
 #include "server/manager.hpp"
 #include <random>
@@ -83,6 +84,20 @@ void ServerApp::handle_login_case(VerifyClientStatus status,
 
     queue_write(connection, auth_packet);
     enable_write_event(p_kq, connection->fd);
+
+    std::string join_msg = username + " has joined the chat!";
+    std::string join_payload = "S|" + join_msg;
+
+    auto join_pkt = create_packet_stream(PacketType::Message, join_payload);
+
+    auto write_fds = broadcast(connection->fd, join_pkt, client_manager_);
+
+    for (int fd : write_fds) {
+      enable_write_event(p_kq, fd);
+    }
+
+    print_message(join_msg, PrintKind::Server);
+
     break;
   }
 
@@ -126,6 +141,8 @@ void ServerApp::handle_register_client_status(RegisterClientStatus status,
   case RegisterClientStatus::ClientRegistered: {
 
     print_message("Client has been registered", PrintKind::Server);
+
+    connection->last_seen = ClientConnection::Clock::now();
 
     auto ack_packet = create_packet_stream(PacketType::Ack, "OK");
 
@@ -181,7 +198,6 @@ void ServerApp::handle_handshake_client(HandshakeResult result,
     break;
   }
   case HandshakeKind::Register: {
-    print_message("In case: [HandshakeKind::Register]", PrintKind::Server);
     RegisterClientStatus status;
     status = register_client(result.request.username, result.request.password);
 

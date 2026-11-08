@@ -124,27 +124,17 @@ RegisterStatus register_client(ClientConnection *connection) {
 
   while (true) {
 
-    ++iteration;
-
-    if (iteration > 6) {
-      return RegisterStatus::ProtocolError;
-    }
-
-    std::string message;
-
     ProcessStreamResult result = process_data_stream(connection->rx_buffer);
 
     switch (result.status) {
 
     case ProcessStreamStatus::Acknowledgement:
 
-      if (message == "OK") {
-
-        print_message("Successfully registered", PrintKind::Server);
+      if (result.message == "OK") {
         return RegisterStatus::Registered;
       }
 
-      if (message == "NO") {
+      if (result.message == "NO") {
         return RegisterStatus::UserAlreadyExists;
       }
 
@@ -152,7 +142,7 @@ RegisterStatus register_client(ClientConnection *connection) {
 
     case ProcessStreamStatus::ErrorAck:
 
-      if (message == "ERR") {
+      if (result.message == "ERR") {
         return RegisterStatus::SQLErr;
       }
 
@@ -169,17 +159,9 @@ RegisterStatus register_client(ClientConnection *connection) {
         continue;
 
       case ReadResult::ConnectionClosed:
-        return RegisterStatus::ConnectionLost;
-
       case ReadResult::FatalError:
-        return RegisterStatus::ConnectionLost;
-
       case ReadResult::Ignored:
-        return RegisterStatus::ConnectionLost;
-
       case ReadResult::WantRead:
-        return RegisterStatus::ConnectionLost;
-
       case ReadResult::WantWrite:
         return RegisterStatus::ConnectionLost;
       }
@@ -188,11 +170,7 @@ RegisterStatus register_client(ClientConnection *connection) {
     }
 
     case ProcessStreamStatus::InvalidProtocolError:
-      return RegisterStatus::ProtocolError;
-
     case ProcessStreamStatus::PrintMessage:
-      return RegisterStatus::ProtocolError;
-
     case ProcessStreamStatus::ReceivedPong:
       return RegisterStatus::ProtocolError;
     }
