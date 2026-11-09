@@ -80,6 +80,7 @@ SERVER_SRC := \
 	src/server/io.cpp \
 	src/server/message_handler.cpp \
 	src/server/sql_helper.cpp \
+	src/server/event_handler.cpp \
 	$(COMMON_SRC) \
 	$(BCRYPT_SRC)
 
